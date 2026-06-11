@@ -24,6 +24,21 @@ fn standard_capability(class: DeviceClass) -> Option<(&'static str, &'static str
         C::Humidity => ("relativeHumidityMeasurement", "humidity"),
         C::UvIndex => ("ultravioletIndex", "ultravioletIndex"),
         C::Pm25 => ("fineDustSensor", "fineDustLevel"),
+        // Dyson (et al.) air-quality / fan classes -> standard capabilities.
+        // PM10 -> the coarse `dustSensor.dustLevel` (PM2.5 already owns
+        // `fineDustSensor`), so a device can carry both without collision.
+        C::Pm10 => ("dustSensor", "dustLevel"),
+        // VOC is shipped as a raw air-quality index, so it maps to the generic
+        // `airQualitySensor.airQuality` (NOT `tvocMeasurement`, which expects
+        // ppb — we deliberately don't invent that unit; see `dyson::canonical`).
+        C::VolatileOrganicCompounds => ("airQualitySensor", "airQuality"),
+        // NO2 also reads as a unitless index. `airQualitySensor.airQuality` is
+        // a single-value attribute already claimed by VOC above, so binding NO2
+        // to it on the same device would overwrite VOC. There's no clean,
+        // unit-free standard capability for NO2, so leave it unmapped (counted,
+        // never silently dropped) rather than collide. See the `_ => None` arm.
+        C::FanSpeed => ("fanSpeed", "fanSpeed"),
+        C::FilterLife => ("filterStatus", "filterLifeTime"),
         C::BatteryLow => ("battery", "battery"),
         // Power devices (EcoFlow et al.) -> standard energy capabilities.
         C::Battery => ("battery", "battery"),
@@ -70,6 +85,26 @@ fn encode_value(
         C::Pm25 => {
             let (value, _) = quantity(&obs.value)?;
             Some((json!(round1(value)), Some("μg/m^3")))
+        }
+        // PM10: same mass-concentration unit as PM2.5, on the coarse dust sensor.
+        C::Pm10 => {
+            let (value, _) = quantity(&obs.value)?;
+            Some((json!(round1(value)), Some("μg/m^3")))
+        }
+        // VOC index: a unitless integer on `airQualitySensor.airQuality`.
+        C::VolatileOrganicCompounds => match obs.value {
+            Value::Count(n) => Some((json!(n), None)),
+            _ => None,
+        },
+        // Fan speed: a unitless integer step (Dyson 1–10) on `fanSpeed.fanSpeed`.
+        C::FanSpeed => match obs.value {
+            Value::Count(n) => Some((json!(n), None)),
+            _ => None,
+        },
+        // Filter life: integer percent remaining on `filterStatus.filterLifeTime`.
+        C::FilterLife => {
+            let (value, _) = quantity(&obs.value)?;
+            Some((json!((value.round() as i64).clamp(0, 100)), Some("%")))
         }
         C::BatteryLow => match obs.value {
             Value::Flag(low) => Some((json!(if low { 10 } else { 100 }), Some("%"))),
@@ -214,5 +249,72 @@ mod tests {
         assert_eq!(capability_id(DeviceClass::Battery), Some("battery"));
         assert_eq!(capability_id(DeviceClass::Power), Some("powerMeter"));
         assert_eq!(capability_id(DeviceClass::Energy), Some("energyMeter"));
+    }
+
+    #[test]
+    fn dyson_air_quality_and_fan_classes_map() {
+        // PM10 -> the coarse dust sensor, in µg/m³ (system-agnostic).
+        let pm10 = to_event(
+            &obs(DeviceClass::Pm10, Value::quantity(8.0, Unit::MicrogramsPerCubicMeter)),
+            UnitSystem::Imperial,
+        )
+        .unwrap();
+        assert_eq!(pm10.capability, "dustSensor");
+        assert_eq!(pm10.attribute, "dustLevel");
+        assert_eq!(pm10.value, json!(8.0));
+        assert_eq!(pm10.unit, Some("μg/m^3"));
+
+        // VOC -> airQualitySensor.airQuality, a unitless integer index.
+        let voc = to_event(
+            &obs(DeviceClass::VolatileOrganicCompounds, Value::Count(35)),
+            UnitSystem::Metric,
+        )
+        .unwrap();
+        assert_eq!(voc.capability, "airQualitySensor");
+        assert_eq!(voc.attribute, "airQuality");
+        assert_eq!(voc.value, json!(35));
+        assert_eq!(voc.unit, None);
+
+        // Fan speed -> fanSpeed.fanSpeed, a unitless integer step.
+        let fan = to_event(&obs(DeviceClass::FanSpeed, Value::Count(7)), UnitSystem::Imperial)
+            .unwrap();
+        assert_eq!(fan.capability, "fanSpeed");
+        assert_eq!(fan.attribute, "fanSpeed");
+        assert_eq!(fan.value, json!(7));
+        assert_eq!(fan.unit, None);
+
+        // Filter life -> filterStatus.filterLifeTime, integer percent.
+        let filt = to_event(
+            &obs(DeviceClass::FilterLife, Value::quantity(89.0, Unit::Percent)),
+            UnitSystem::Imperial,
+        )
+        .unwrap();
+        assert_eq!(filt.capability, "filterStatus");
+        assert_eq!(filt.attribute, "filterLifeTime");
+        assert_eq!(filt.value, json!(89));
+        assert_eq!(filt.unit, Some("%"));
+    }
+
+    #[test]
+    fn nitrogen_dioxide_has_no_clean_standard_capability() {
+        // NO2 deliberately maps to nothing (airQuality is single-value and
+        // claimed by VOC); it must be counted, not emitted.
+        assert_eq!(capability_id(DeviceClass::NitrogenDioxide), None);
+        assert!(to_event(
+            &obs(DeviceClass::NitrogenDioxide, Value::Count(4)),
+            UnitSystem::Imperial
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn capability_id_covers_dyson_classes() {
+        assert_eq!(capability_id(DeviceClass::Pm10), Some("dustSensor"));
+        assert_eq!(capability_id(DeviceClass::FanSpeed), Some("fanSpeed"));
+        assert_eq!(capability_id(DeviceClass::FilterLife), Some("filterStatus"));
+        assert_eq!(
+            capability_id(DeviceClass::VolatileOrganicCompounds),
+            Some("airQualitySensor")
+        );
     }
 }

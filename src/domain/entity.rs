@@ -49,6 +49,17 @@ pub enum DeviceClass {
     SolarRadiation,
     UvIndex,
     Pm25,
+    /// Particulate matter ≤10µm (µg/m³). Reuses the Pm25 mass-concentration unit.
+    Pm10,
+    /// Volatile organic compounds as a unitless air-quality index (no ppb/µg —
+    /// Dyson reports an AQI-style value; see `dyson::canonical`).
+    VolatileOrganicCompounds,
+    /// Nitrogen dioxide as a unitless air-quality index (same rationale as VOC).
+    NitrogenDioxide,
+    /// Remaining filter life as a percentage (0–100).
+    FilterLife,
+    /// Fan speed as a unitless step (Dyson: 1–10).
+    FanSpeed,
     LightningStrikeCount,
     LightningDistance,
     BatteryLow,

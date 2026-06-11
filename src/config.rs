@@ -23,6 +23,10 @@ pub struct Config {
     /// poll loop then never touches EcoFlow.
     #[serde(default)]
     pub ecoflow: Option<EcoflowConfig>,
+    /// Dyson sources (local MQTT push). Each `[[dyson]]` block is one device;
+    /// omit them all to disable Dyson (no MQTT tasks spawned).
+    #[serde(default)]
+    pub dyson: Vec<DysonConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -120,6 +124,41 @@ pub struct EcoflowConfig {
     /// API base host; defaults to `api-e.ecoflow.com`.
     #[serde(default)]
     pub base_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DysonConfig {
+    /// Device IP/hostname on the LAN, e.g. `192.168.2.133`.
+    pub host: String,
+    /// MQTT port. `1883` for plaintext (most models), `8883` for TLS models.
+    #[serde(default = "default_dyson_port")]
+    pub port: u16,
+    /// Use TLS for the MQTT connection (the `8883` path on newer models).
+    /// Defaults to false (plaintext `1883`).
+    #[serde(default)]
+    pub tls: bool,
+    /// Setup SSID off the device sticker, `DYSON-<serial>-<product_type>`. The
+    /// serial and numeric product type are parsed from it (libdyson's split).
+    #[serde(default)]
+    pub ssid: Option<String>,
+    /// Wi-Fi password off the sticker. The MQTT credential is derived as
+    /// `base64(SHA-512(wifi_password))` (libdyson `get_mqtt_info_from_wifi_info`).
+    #[serde(default)]
+    pub wifi_password: Option<String>,
+    /// Explicit serial override (use when the sticker SSID is unavailable).
+    #[serde(default)]
+    pub serial: Option<String>,
+    /// Explicit numeric product-type override, e.g. `438` (Pure Cool).
+    #[serde(default)]
+    pub product_type: Option<String>,
+    /// Explicit MQTT credential override (the already-derived password). Lets
+    /// you supply the credential directly instead of `wifi_password`.
+    #[serde(default)]
+    pub credential: Option<String>,
+}
+
+fn default_dyson_port() -> u16 {
+    1883
 }
 
 #[derive(Debug, Clone, Deserialize)]

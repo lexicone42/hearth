@@ -25,6 +25,25 @@ interval_secs = 60
 # device_sns = ["R331ZEB4ZEAL0001"]
 # # base_url = "https://api-e.ecoflow.com"   # default (US/global host)
 
+# Optional: enable Dyson sources (local MQTT push). Each [[dyson]] block is ONE
+# device — repeat the block for multiple fans/purifiers. Omit them all to disable
+# Dyson (no MQTT tasks spawned). This is a PUSH source: no poll interval — it
+# emits observations as the device sends them.
+# [[dyson]]
+# host = "192.168.2.133"
+# port = 1883                            # 1883 plaintext (most models); 8883 = TLS
+# tls = false                            # set true for 8883 / TLS-only models
+# # From the device's setup sticker. `serial` and `product_type` are parsed from
+# # the SSID, and the MQTT credential is derived locally as
+# # base64(SHA-512(wifi_password)) — no Dyson cloud round-trip.
+# ssid = "DYSON-XXX-XX-XXXXXXXX-XXX"
+# wifi_password = "..."
+# # Optional explicit overrides if the sticker SSID is unavailable. Any of these
+# # takes precedence over the value derived from `ssid` / `wifi_password`:
+# # serial = "..."
+# # product_type = "438"                 # e.g. 438 = Pure Cool
+# # credential = "..."                   # the already-derived MQTT password
+
 # Optional: enable the SmartThings sink. Omit this whole section to just log.
 # [smartthings]
 # token_store = "token_store.json"           # where OAuth tokens are persisted

@@ -1,18 +1,28 @@
 mod ambient;
 mod config;
 mod domain;
+mod dyson;
 mod ecoflow;
 mod smartthings;
 
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use crate::ambient::client::AmbientClient;
 use crate::config::Config;
+use crate::domain::Observation;
 use crate::ecoflow::client::EcoflowClient;
 use crate::smartthings::SmartThingsSink;
+
+/// Per-sample batch of observations carried on the internal event bus. Each
+/// source produces one `Vec<Observation>` per sample (preserving the existing
+/// per-publish sink batch semantics); the router fans each batch into the
+/// sink(s). Sized to comfortably absorb a slow sink without back-pressuring the
+/// source tasks under normal cadence.
+const BUS_CAPACITY: usize = 64;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -40,6 +50,7 @@ async fn main() -> Result<()> {
         unit_system = ?config.unit_system,
         smartthings = config.smartthings.is_some(),
         ecoflow = config.ecoflow.is_some(),
+        dyson = config.dyson.len(),
         mac = %config.ambient.mac_address,
         "starting ambient-st-bridge"
     );
@@ -51,8 +62,9 @@ async fn main() -> Result<()> {
     };
 
     // EcoFlow source is entirely optional: with no `[ecoflow]` section it's
-    // `None` and the loop never touches it. Building the client is offline
-    // (just an HTTP client + stored keys); device SNs are resolved at poll time.
+    // `None` and the source task is never spawned. Building the client is
+    // offline (just an HTTP client + stored keys); device SNs are resolved at
+    // poll time.
     let ecoflow = match &config.ecoflow {
         Some(cfg) => {
             let base = cfg.base_url.clone();
@@ -68,82 +80,112 @@ async fn main() -> Result<()> {
     run(client, sink, ecoflow, config).await
 }
 
-/// Phase 1+2+3a loop: poll Ambient Weather, normalize to canonical
-/// `Observation`s, log them, and (when configured) push them to SmartThings.
-/// Phase 3b puts an OAuth-refreshing token behind the sink; Phase 5 swaps the
-/// REST poll for the realtime feed. Neither changes anything in this loop.
+/// Internal event-bus orchestration. Each source is its own task holding a
+/// clone of the bus `Sender`; a single router task owns the sink(s) and the
+/// `Receiver`. Data flows source-task → bus → router → sink, so a new push
+/// source (Dyson, Phase 2) needs no tick and no sink wiring — it just sends.
+///
+/// Observable behavior is identical to the previous inline loop: the same fetch
+/// cadence (Ambient/EcoFlow tickers), the same log lines, and the same
+/// SmartThings publishes (the router is the *only* place sinks are called).
 async fn run(
     client: AmbientClient,
     sink: Option<SmartThingsSink>,
     ecoflow: Option<(EcoflowClient, Vec<String>)>,
     config: Config,
 ) -> Result<()> {
-    let mut ticker = tokio::time::interval(Duration::from_secs(config.poll.interval_secs));
-    loop {
-        tokio::select! {
-            _ = ticker.tick() => {
-                match client.latest(&config.ambient.mac_address).await {
-                    Ok(Some(reading)) => {
-                        let observations = ambient::canonical::to_observations(&reading);
-                        info!(count = observations.len(), "mapped observations");
-                        for obs in &observations {
-                            debug!(
-                                entity = %obs.entity,
-                                class = ?obs.class,
-                                value = %obs.value.in_system(config.unit_system),
-                                "observation",
-                            );
-                        }
-                        if let Some(sink) = &sink {
-                            sink.publish(&observations).await;
-                        }
-                    }
-                    Ok(None) => warn!("station returned no observations"),
-                    Err(e) => error!(error = ?e, "failed to fetch observation"),
-                }
+    let (tx, rx) = mpsc::channel::<Vec<Observation>>(BUS_CAPACITY);
 
-                // EcoFlow source: only runs when `[ecoflow]` is configured.
-                if let Some((client, sns)) = &ecoflow {
-                    poll_ecoflow(client, sns, &sink, config.unit_system).await;
-                }
+    // Router: the single owner of the sink(s) and the bus receiver. Every
+    // observation batch from every source flows through here, and this is the
+    // ONLY place `sink.publish` is called.
+    let router = tokio::spawn(router(rx, sink));
+
+    // ----- Ambient source task (always present) -----
+    let ambient = tokio::spawn(run_ambient(
+        client,
+        config.ambient.mac_address.clone(),
+        config.unit_system,
+        config.poll.interval_secs,
+        tx.clone(),
+    ));
+
+    // ----- EcoFlow source task (only when `[ecoflow]` is configured) -----
+    let ecoflow = ecoflow.map(|(client, sns)| {
+        tokio::spawn(run_ecoflow(
+            client,
+            sns,
+            config.unit_system,
+            config.poll.interval_secs,
+            tx.clone(),
+        ))
+    });
+
+    // ----- Dyson source tasks (one per `[[dyson]]` device) -----
+    // Push sources: no tick — each produces on its own incoming MQTT publishes,
+    // all feeding the same bus (entity ids namespace by serial, so they never
+    // collide). A device that fails to build is skipped, never fatal (mirrors
+    // EcoFlow's optionality).
+    let mut dyson_handles = Vec::new();
+    for cfg in &config.dyson {
+        match dyson::source::DysonSource::from_config(cfg) {
+            Ok(source) => {
+                dyson_handles.push(tokio::spawn(source.run(config.unit_system, tx.clone())));
             }
-            _ = tokio::signal::ctrl_c() => {
-                info!("shutdown signal received, exiting");
-                break;
-            }
+            Err(e) => error!(error = ?e, "failed to build a Dyson source — skipping it"),
         }
     }
+
+    // Drop our own sender clone so the router's `rx.recv()` can observe channel
+    // closure if every source task ends (it normally runs until ctrl-c).
+    drop(tx);
+
+    // Wait for ctrl-c, then exit. The source/router tasks run until the process
+    // ends; aborting them here keeps shutdown prompt and clean.
+    tokio::signal::ctrl_c().await.ok();
+    info!("shutdown signal received, exiting");
+
+    ambient.abort();
+    if let Some(h) = ecoflow {
+        h.abort();
+    }
+    for h in dyson_handles {
+        h.abort();
+    }
+    router.abort();
+
     Ok(())
 }
 
-/// Poll each configured EcoFlow device's quota, map it to canonical
-/// observations, log them, and (when a sink is present) publish. Discovers
-/// device SNs from the device-list endpoint when none are configured. Errors
-/// are logged, never fatal — EcoFlow trouble must not take down the bridge.
-async fn poll_ecoflow(
-    client: &EcoflowClient,
-    configured_sns: &[String],
-    sink: &Option<SmartThingsSink>,
-    unit_system: domain::UnitSystem,
-) {
-    // Resolve the device list: explicit config wins, else discover.
-    let sns: Vec<String> = if configured_sns.is_empty() {
-        match client.device_list().await {
-            Ok(devices) => devices.into_iter().map(|d| d.sn).collect(),
-            Err(e) => {
-                error!(error = ?e, "failed to fetch EcoFlow device list");
-                return;
-            }
+/// Router task: owns the sink(s) and the bus receiver. Drains the bus and
+/// publishes each batch. The only caller of `sink.publish`.
+async fn router(mut rx: mpsc::Receiver<Vec<Observation>>, sink: Option<SmartThingsSink>) {
+    while let Some(batch) = rx.recv().await {
+        if let Some(sink) = &sink {
+            sink.publish(&batch).await;
         }
-    } else {
-        configured_sns.to_vec()
-    };
+    }
+    debug!("event bus closed; router exiting");
+}
 
-    for sn in &sns {
-        match client.quota_all(sn).await {
-            Ok(quota) => {
-                let observations = ecoflow::canonical::to_observations(sn, &quota);
-                info!(sn = %sn, count = observations.len(), "mapped EcoFlow observations");
+/// Ambient source task: ticks on the poll interval, fetches the latest reading,
+/// maps it to canonical observations, logs them, and sends the batch onto the
+/// bus. Behaviorally identical to the old inline Ambient branch (same cadence,
+/// same `"mapped observations"` log, same per-observation debug lines).
+async fn run_ambient(
+    client: AmbientClient,
+    mac_address: String,
+    unit_system: domain::UnitSystem,
+    interval_secs: u64,
+    tx: mpsc::Sender<Vec<Observation>>,
+) {
+    let mut ticker = tokio::time::interval(Duration::from_secs(interval_secs));
+    loop {
+        ticker.tick().await;
+        match client.latest(&mac_address).await {
+            Ok(Some(reading)) => {
+                let observations = ambient::canonical::to_observations(&reading);
+                info!(count = observations.len(), "mapped observations");
                 for obs in &observations {
                     debug!(
                         entity = %obs.entity,
@@ -152,11 +194,66 @@ async fn poll_ecoflow(
                         "observation",
                     );
                 }
-                if let Some(sink) = sink {
-                    sink.publish(&observations).await;
+                if tx.send(observations).await.is_err() {
+                    // Router gone (shutdown). Nothing more to do.
+                    break;
                 }
             }
-            Err(e) => error!(sn = %sn, error = ?e, "failed to fetch EcoFlow quota"),
+            Ok(None) => warn!("station returned no observations"),
+            Err(e) => error!(error = ?e, "failed to fetch observation"),
+        }
+    }
+}
+
+/// EcoFlow source task: ticks on the poll interval and, for each configured (or
+/// discovered) device, fetches its quota, maps it, logs it, and sends the batch
+/// onto the bus. Errors are logged, never fatal — EcoFlow trouble must not take
+/// down the bridge. Behaviorally identical to the old inline `poll_ecoflow`,
+/// except batches now flow onto the bus instead of straight to the sink.
+async fn run_ecoflow(
+    client: EcoflowClient,
+    configured_sns: Vec<String>,
+    unit_system: domain::UnitSystem,
+    interval_secs: u64,
+    tx: mpsc::Sender<Vec<Observation>>,
+) {
+    let mut ticker = tokio::time::interval(Duration::from_secs(interval_secs));
+    loop {
+        ticker.tick().await;
+
+        // Resolve the device list: explicit config wins, else discover.
+        let sns: Vec<String> = if configured_sns.is_empty() {
+            match client.device_list().await {
+                Ok(devices) => devices.into_iter().map(|d| d.sn).collect(),
+                Err(e) => {
+                    error!(error = ?e, "failed to fetch EcoFlow device list");
+                    continue;
+                }
+            }
+        } else {
+            configured_sns.clone()
+        };
+
+        for sn in &sns {
+            match client.quota_all(sn).await {
+                Ok(quota) => {
+                    let observations = ecoflow::canonical::to_observations(sn, &quota);
+                    info!(sn = %sn, count = observations.len(), "mapped EcoFlow observations");
+                    for obs in &observations {
+                        debug!(
+                            entity = %obs.entity,
+                            class = ?obs.class,
+                            value = %obs.value.in_system(unit_system),
+                            "observation",
+                        );
+                    }
+                    if tx.send(observations).await.is_err() {
+                        // Router gone (shutdown).
+                        return;
+                    }
+                }
+                Err(e) => error!(sn = %sn, error = ?e, "failed to fetch EcoFlow quota"),
+            }
         }
     }
 }
