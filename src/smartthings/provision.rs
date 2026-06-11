@@ -83,13 +83,20 @@ pub async fn run_provision(config: &Config) -> Result<()> {
         // entities that actually appear in the current reading.
         let mut capabilities: Vec<&str> = Vec::new();
         for entity in &device.entities {
-            match class_by_entity.get(entity.as_str()) {
-                Some(class) => match capability_id(*class) {
+            // Ambient entity classes come from the live reading; push sources
+            // (Dyson) have deterministic channel→class mappings, so fall back to
+            // those when the entity isn't part of an Ambient reading.
+            let class = class_by_entity
+                .get(entity.as_str())
+                .copied()
+                .or_else(|| class_for_dyson_entity(entity));
+            match class {
+                Some(class) => match capability_id(class) {
                     Some(cap) if !capabilities.contains(&cap) => capabilities.push(cap),
                     Some(_) => {}
                     None => println!("    {entity}: no standard capability yet — skipped"),
                 },
-                None => println!("    {entity}: not in current reading — skipped"),
+                None => println!("    {entity}: unknown entity (not in a reading or a known dyson channel) — skipped"),
             }
         }
         if capabilities.is_empty() {
@@ -109,4 +116,12 @@ pub async fn run_provision(config: &Config) -> Result<()> {
     store.save(&ids)?;
     println!("\nProvisioned {created} new device(s). Run `cargo run` to start pushing.");
     Ok(())
+}
+
+/// Class of a `dyson.<serial>.<channel>` entity, derived from its channel name
+/// without a live device connection — so a push-source device can be provisioned
+/// offline. `None` for non-dyson entities.
+fn class_for_dyson_entity(entity: &str) -> Option<DeviceClass> {
+    let channel = entity.strip_prefix("dyson.")?.rsplit('.').next()?;
+    crate::dyson::canonical::class_for_channel(channel)
 }

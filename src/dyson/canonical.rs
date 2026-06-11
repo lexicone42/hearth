@@ -115,6 +115,25 @@ pub fn to_observations(serial: &str, state: &serde_json::Map<String, Json>) -> V
     out
 }
 
+/// The `DeviceClass` of a Dyson channel — the `<channel>` tail of a
+/// `dyson.<serial>.<channel>` entity id — independent of any live reading. Lets
+/// provisioning derive a device's capabilities offline (no MQTT connect needed).
+/// MUST stay in sync with the channels [`to_observations`] emits.
+pub fn class_for_channel(channel: &str) -> Option<DeviceClass> {
+    use DeviceClass as C;
+    Some(match channel {
+        "pm25" => C::Pm25,
+        "pm10" => C::Pm10,
+        "temperature" => C::Temperature,
+        "humidity" => C::Humidity,
+        "voc" => C::VolatileOrganicCompounds,
+        "no2" => C::NitrogenDioxide,
+        "hepa_filter_life" | "carbon_filter_life" => C::FilterLife,
+        "fan_speed" => C::FanSpeed,
+        _ => return None,
+    })
+}
+
 /// Resolve the first present, non-sentinel field among `keys`, applying
 /// `_get_field_value`'s `[old, new]` array rule (take the last element). Returns
 /// the raw string token (numeric parsing is left to the typed accessors).
@@ -257,5 +276,20 @@ mod tests {
     fn empty_state_yields_nothing() {
         let obs = to_observations("SN", &serde_json::Map::new());
         assert!(obs.is_empty());
+    }
+
+    #[test]
+    fn class_for_channel_covers_emitted_channels() {
+        // Every channel `to_observations` can emit must resolve to its class, so
+        // provisioning derives the same capabilities the sink will publish.
+        let s = state(json!({
+            "pm25": "1", "pm10": "1", "tact": "2950", "hact": "40",
+            "va10": "1", "noxl": "1", "hflr": "50", "cflr": "50", "fnsp": "3",
+        }));
+        for obs in to_observations("SN", &s) {
+            let channel = obs.entity.as_str().rsplit('.').next().unwrap();
+            assert_eq!(class_for_channel(channel), Some(obs.class), "channel {channel}");
+        }
+        assert_eq!(class_for_channel("nonsense"), None);
     }
 }
