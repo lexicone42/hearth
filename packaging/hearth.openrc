@@ -17,7 +17,9 @@ directory="/datar/workspace/claude_code_experiments/hearth"
 output_log="/datar/workspace/claude_code_experiments/hearth/hearth.log"
 error_log="/datar/workspace/claude_code_experiments/hearth/hearth.log"
 respawn_delay=5
-respawn_period=45
+# No respawn_period/respawn_max: a home hub should keep retrying indefinitely on
+# crash rather than give up after N tries — and it sidesteps supervise-daemon's
+# "respawn-period vs respawn-delay" warning (harmless, but noisy at start).
 
 export RUST_LOG="info"
 
