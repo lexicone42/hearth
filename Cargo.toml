@@ -14,3 +14,7 @@ thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 toml = "0.8"
+# EcoFlow IoT Open API request signing (HMAC-SHA256, lowercase hex).
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"

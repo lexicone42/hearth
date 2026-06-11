@@ -17,6 +17,10 @@ pub enum Dimension {
     Ratio,
     Irradiance,
     MassConcentration,
+    /// Instantaneous power: watts.
+    Power,
+    /// Accumulated energy: watt-hours.
+    Energy,
     /// Dimensionless indices (UV index, ...).
     Index,
 }
@@ -40,6 +44,8 @@ pub enum Unit {
     Percent,
     WattsPerSquareMeter,
     MicrogramsPerCubicMeter,
+    Watts,
+    WattHours,
     Index,
 }
 
@@ -56,6 +62,8 @@ impl Unit {
             Unit::Percent => D::Ratio,
             Unit::WattsPerSquareMeter => D::Irradiance,
             Unit::MicrogramsPerCubicMeter => D::MassConcentration,
+            Unit::Watts => D::Power,
+            Unit::WattHours => D::Energy,
             Unit::Index => D::Index,
         }
     }
@@ -79,6 +87,8 @@ impl Unit {
             | Unit::Percent
             | Unit::WattsPerSquareMeter
             | Unit::MicrogramsPerCubicMeter
+            | Unit::Watts
+            | Unit::WattHours
             | Unit::Index => v,
         }
     }
@@ -100,6 +110,8 @@ impl Unit {
             | Unit::Percent
             | Unit::WattsPerSquareMeter
             | Unit::MicrogramsPerCubicMeter
+            | Unit::Watts
+            | Unit::WattHours
             | Unit::Index => v,
         }
     }
@@ -127,6 +139,8 @@ impl fmt::Display for Unit {
             Unit::Percent => "%",
             Unit::WattsPerSquareMeter => "W/m²",
             Unit::MicrogramsPerCubicMeter => "µg/m³",
+            Unit::Watts => "W",
+            Unit::WattHours => "Wh",
             Unit::Index => "",
         })
     }

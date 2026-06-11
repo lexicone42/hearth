@@ -19,6 +19,10 @@ pub struct Config {
     /// SmartThings sink. Omit the whole `[smartthings]` section to just log.
     #[serde(default)]
     pub smartthings: Option<SmartThingsConfig>,
+    /// EcoFlow source. Omit the whole `[ecoflow]` section to disable it; the
+    /// poll loop then never touches EcoFlow.
+    #[serde(default)]
+    pub ecoflow: Option<EcoflowConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -100,6 +104,22 @@ pub struct AmbientConfig {
     pub api_key: String,
     /// Station MAC address, e.g. "AA:BB:CC:DD:EE:FF".
     pub mac_address: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EcoflowConfig {
+    /// EcoFlow IoT Open API "accessKey" (from the developer portal).
+    pub access_key: String,
+    /// EcoFlow IoT Open API "secretKey" (from the developer portal).
+    pub secret_key: String,
+    /// Device serial numbers to poll. Leave empty to discover them from the
+    /// device-list endpoint at startup (still a no-op if both keys are unset,
+    /// because the whole `[ecoflow]` section is then absent).
+    #[serde(default)]
+    pub device_sns: Vec<String>,
+    /// API base host; defaults to `api-e.ecoflow.com`.
+    #[serde(default)]
+    pub base_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

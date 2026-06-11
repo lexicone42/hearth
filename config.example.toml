@@ -14,6 +14,17 @@ mac_address = "AA:BB:CC:DD:EE:FF"
 # REST poll interval (seconds). Realtime push (Phase 5) makes this a fallback.
 interval_secs = 60
 
+# Optional: enable the EcoFlow source. Omit this whole section to disable it
+# (the poll loop then never touches EcoFlow).
+# [ecoflow]
+# # From https://developer.ecoflow.com -> your app's IoT Open API credentials.
+# access_key = "your-ecoflow-access-key"
+# secret_key = "your-ecoflow-secret-key"
+# # Device serial numbers to poll. Leave empty/omit to auto-discover them from
+# # the device-list endpoint at each poll.
+# device_sns = ["R331ZEB4ZEAL0001"]
+# # base_url = "https://api-e.ecoflow.com"   # default (US/global host)
+
 # Optional: enable the SmartThings sink. Omit this whole section to just log.
 # [smartthings]
 # token_store = "token_store.json"           # where OAuth tokens are persisted

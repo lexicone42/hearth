@@ -52,5 +52,11 @@ pub enum DeviceClass {
     LightningStrikeCount,
     LightningDistance,
     BatteryLow,
+    /// Battery state-of-charge as a percentage (0–100).
+    Battery,
+    /// Instantaneous electrical power (watts).
+    Power,
+    /// Accumulated electrical energy (watt-hours).
+    Energy,
     Timestamp,
 }
