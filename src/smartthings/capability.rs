@@ -38,7 +38,7 @@ fn standard_capability(class: DeviceClass) -> Option<(&'static str, &'static str
         // unit-free standard capability for NO2, so leave it unmapped (counted,
         // never silently dropped) rather than collide. See the `_ => None` arm.
         C::FanSpeed => ("fanSpeed", "fanSpeed"),
-        C::FilterLife => ("filterStatus", "filterLifeTime"),
+        C::FilterLife => ("filterStatus", "filterStatus"),
         C::BatteryLow => ("battery", "battery"),
         // Power devices (EcoFlow et al.) -> standard energy capabilities.
         C::Battery => ("battery", "battery"),
@@ -101,10 +101,13 @@ fn encode_value(
             Value::Count(n) => Some((json!(n), None)),
             _ => None,
         },
-        // Filter life: integer percent remaining on `filterStatus.filterLifeTime`.
+        // Filter life -> `filterStatus` enum. The standard filter capability has
+        // no numeric attribute, so report "replace" once life runs low (≤10%),
+        // else "normal". (A numeric % needs the `filterState` capability, which
+        // would require re-provisioning the device.)
         C::FilterLife => {
             let (value, _) = quantity(&obs.value)?;
-            Some((json!((value.round() as i64).clamp(0, 100)), Some("%")))
+            Some((json!(if value <= 10.0 { "replace" } else { "normal" }), None))
         }
         C::BatteryLow => match obs.value {
             Value::Flag(low) => Some((json!(if low { 10 } else { 100 }), Some("%"))),
@@ -283,16 +286,23 @@ mod tests {
         assert_eq!(fan.value, json!(7));
         assert_eq!(fan.unit, None);
 
-        // Filter life -> filterStatus.filterLifeTime, integer percent.
-        let filt = to_event(
+        // Filter life -> filterStatus enum: "normal" while healthy, "replace" low.
+        let healthy = to_event(
             &obs(DeviceClass::FilterLife, Value::quantity(89.0, Unit::Percent)),
             UnitSystem::Imperial,
         )
         .unwrap();
-        assert_eq!(filt.capability, "filterStatus");
-        assert_eq!(filt.attribute, "filterLifeTime");
-        assert_eq!(filt.value, json!(89));
-        assert_eq!(filt.unit, Some("%"));
+        assert_eq!(healthy.capability, "filterStatus");
+        assert_eq!(healthy.attribute, "filterStatus");
+        assert_eq!(healthy.value, json!("normal"));
+        assert_eq!(healthy.unit, None);
+
+        let low = to_event(
+            &obs(DeviceClass::FilterLife, Value::quantity(5.0, Unit::Percent)),
+            UnitSystem::Imperial,
+        )
+        .unwrap();
+        assert_eq!(low.value, json!("replace"));
     }
 
     #[test]

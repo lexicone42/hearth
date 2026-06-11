@@ -107,9 +107,13 @@ pub fn to_observations(serial: &str, state: &serde_json::Map<String, Json>) -> V
         push("carbon_filter_life", C::FilterLife, Value::quantity(v as f64, Percent));
     }
 
-    // ----- Fan speed (1–10 step; `AUTO` -> skip) -----
-    if let Some(v) = field_i64(state, &["fnsp"]) {
-        push("fan_speed", C::FanSpeed, Value::Count(v));
+    // ----- Fan speed (1–10 step) -----
+    // Report the numeric step when set; for a non-numeric mode (`AUTO`) report 0
+    // rather than skipping, so the device's SmartThings `fanSpeed` attribute isn't
+    // left showing an uninitialized garbage default. (`fnsp` absent or a sentinel
+    // like `OFF` still emits nothing.)
+    if let Some(s) = field_str(state, &["fnsp"]) {
+        push("fan_speed", C::FanSpeed, Value::Count(s.trim().parse().unwrap_or(0)));
     }
 
     out
@@ -254,7 +258,7 @@ mod tests {
             "noxl": "FAIL",     // sensor fault -> nothing
             "hact": "NONE",     // no reading -> nothing
             "cflr": "INV",      // no carbon filter fitted -> nothing
-            "fnsp": "AUTO",     // non-numeric fan mode -> no numeric speed
+            "fnsp": "AUTO",     // non-numeric fan mode -> reported as 0 (not skipped)
             "hflr": "0075",     // a real reading survives
         }));
         let obs = to_observations("SN", &s);
@@ -264,12 +268,14 @@ mod tests {
         assert!(find(&obs, "dyson.SN.no2").is_none());
         assert!(find(&obs, "dyson.SN.humidity").is_none());
         assert!(find(&obs, "dyson.SN.carbon_filter_life").is_none());
-        assert!(find(&obs, "dyson.SN.fan_speed").is_none());
 
-        // Only the one valid field maps.
+        // AUTO fan mode reports 0 (so SmartThings' fanSpeed isn't left at garbage).
+        let fan = find(&obs, "dyson.SN.fan_speed").expect("fan speed 0 for AUTO");
+        assert_eq!(fan.value, Value::Count(0));
+
         let hepa = find(&obs, "dyson.SN.hepa_filter_life").expect("hepa filter");
         assert_eq!(hepa.value, Value::quantity(75.0, Unit::Percent));
-        assert_eq!(obs.len(), 1);
+        assert_eq!(obs.len(), 2); // hepa filter life + fan_speed(0)
     }
 
     #[test]

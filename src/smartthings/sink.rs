@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
+use serde_json::json;
 use tracing::{debug, info, warn};
 
 use crate::config::SmartThingsConfig;
@@ -58,7 +59,25 @@ impl SmartThingsSink {
                 continue;
             };
             match to_event(obs, self.system) {
-                Some(event) => batches.entry(route.clone()).or_default().push(event),
+                Some(event) => {
+                    let batch = batches.entry(route.clone()).or_default();
+                    // A freshly-created SmartThings virtual device reports garbage
+                    // for any attribute we never set. For temperature that
+                    // includes `temperatureRange`, which the Family Hub renders
+                    // instead of the reading (huge bogus values). Pin a sane range
+                    // in the reading's unit so the tile shows the real temperature.
+                    if event.capability == "temperatureMeasurement"
+                        && event.attribute == "temperature"
+                    {
+                        batch.push(StEvent {
+                            capability: "temperatureMeasurement",
+                            attribute: "temperatureRange",
+                            value: json!({ "minimum": -40.0, "maximum": 120.0, "step": 0.1 }),
+                            unit: event.unit,
+                        });
+                    }
+                    batch.push(event);
+                }
                 None => no_capability += 1,
             }
         }
