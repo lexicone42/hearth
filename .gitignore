@@ -1,0 +1,7 @@
+/target
+/config.toml
+/token_store.json
+/device_store.json
+/.tools
+*.log
+.claude/settings.local.json

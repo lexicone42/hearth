@@ -1,0 +1,43 @@
+# Copy to `config.toml` and fill in. `config.toml` is gitignored (it holds secrets).
+# Override the path with the AMBIENT_ST_CONFIG env var.
+
+# "imperial" (°F, inHg, mph, in) or "metric" (°C, hPa, km/h, mm).
+unit_system = "imperial"
+
+[ambient]
+# From https://ambientweather.net account -> account settings -> API keys.
+application_key = "your-ambient-application-key"
+api_key = "your-ambient-api-key"
+mac_address = "AA:BB:CC:DD:EE:FF"
+
+[poll]
+# REST poll interval (seconds). Realtime push (Phase 5) makes this a fallback.
+interval_secs = 60
+
+# Optional: enable the SmartThings sink. Omit this whole section to just log.
+# [smartthings]
+# token_store = "token_store.json"           # where OAuth tokens are persisted
+# # base_url = "https://api.smartthings.com" # default
+# #
+# # Quick 24h smoke test: set a Personal Access Token and skip [smartthings.oauth].
+# # access_token = "your-24h-personal-access-token"
+#
+# # Durable auth (recommended): register an app via `smartthings apps:create`,
+# # then run `cargo run -- auth` once to authorize and store refreshable tokens.
+# [smartthings.oauth]
+# client_id = "your-client-id"
+# client_secret = "your-client-secret"
+# redirect_uri = "https://localhost/callback"
+# scopes = ["r:devices:*", "w:devices:*", "x:devices:*"]
+#
+# # Declare devices by name + the entities they carry, then run
+# # `cargo run -- provision` to self-create them (ids saved to device_store.json).
+# # Bind temperature-like classes (temperature / feels_like / dew_point) to
+# # *separate* devices — they share SmartThings' single `temperature` attribute.
+# [[smartthings.devices]]
+# name = "Outdoor Weather"
+# # device_id = "..."   # optional: use an existing device instead of provisioning
+# entities = [
+#   "ambient_weather.outdoor.temperature",
+#   "ambient_weather.outdoor.humidity",
+# ]

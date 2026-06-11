@@ -1,0 +1,27 @@
+#!/sbin/openrc-run
+# OpenRC service for hearth (self-hosted home-automation hub).
+#
+# Install (as root):
+#   sh /datar/workspace/claude_code_experiments/hearth/packaging/install.sh
+#
+# Watch:  tail -f /datar/workspace/claude_code_experiments/hearth/hearth.log
+
+name="hearth"
+description="hearth home-automation hub"
+
+supervisor="supervise-daemon"
+command="/datar/workspace/claude_code_experiments/hearth/target/release/hearth"
+# Run as the owner of config.toml/token_store.json so token refresh can rewrite them.
+command_user="bryan:users"
+directory="/datar/workspace/claude_code_experiments/hearth"
+output_log="/datar/workspace/claude_code_experiments/hearth/hearth.log"
+error_log="/datar/workspace/claude_code_experiments/hearth/hearth.log"
+respawn_delay=5
+respawn_period=45
+
+export RUST_LOG="info"
+
+depend() {
+	need net
+	after net
+}
