@@ -37,12 +37,19 @@ impl SmartThingsSink {
                 warn!(device = %device.name, "no device_id yet (run `provision`) — skipping its bindings");
                 continue;
             };
-            let component = device.component.clone().unwrap_or_else(|| "main".to_string());
+            let component = device
+                .component
+                .clone()
+                .unwrap_or_else(|| "main".to_string());
             for entity in &device.entities {
                 routes.insert(entity.clone(), (device_id.clone(), component.clone()));
             }
         }
-        Ok(Self { client, system, routes })
+        Ok(Self {
+            client,
+            system,
+            routes,
+        })
     }
 
     /// Map every bound, standard-capability observation and push it, batched per

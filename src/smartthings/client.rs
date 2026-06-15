@@ -160,7 +160,10 @@ impl SmartThingsClient {
 
         let body = CreateRequest {
             name,
-            owner: Owner { owner_type: "LOCATION", owner_id: location_id },
+            owner: Owner {
+                owner_type: "LOCATION",
+                owner_id: location_id,
+            },
             device_profile: Profile {
                 name: format!("{name} profile"),
                 components: vec![Component {

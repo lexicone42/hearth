@@ -169,7 +169,9 @@ pub struct PollConfig {
 
 impl Default for PollConfig {
     fn default() -> Self {
-        Self { interval_secs: default_interval() }
+        Self {
+            interval_secs: default_interval(),
+        }
     }
 }
 

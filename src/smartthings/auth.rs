@@ -69,7 +69,10 @@ impl OAuthClient {
     }
 
     fn authorize_base(&self) -> &str {
-        self.cfg.authorize_url.as_deref().unwrap_or(DEFAULT_AUTHORIZE_URL)
+        self.cfg
+            .authorize_url
+            .as_deref()
+            .unwrap_or(DEFAULT_AUTHORIZE_URL)
     }
 
     fn token_url(&self) -> &str {
@@ -128,7 +131,10 @@ impl OAuthClient {
     /// Exchange a refresh token for a fresh access token.
     pub async fn refresh(&self, refresh_token: &str) -> Result<Tokens> {
         self.post_token(
-            &[("grant_type", "refresh_token"), ("refresh_token", refresh_token)],
+            &[
+                ("grant_type", "refresh_token"),
+                ("refresh_token", refresh_token),
+            ],
             Some(refresh_token),
         )
         .await
@@ -176,7 +182,11 @@ impl TokenManager {
         let tokens = store.load()?.context(
             "no SmartThings tokens stored yet — run `ambient-st-bridge auth` once to authorize",
         )?;
-        Ok(Arc::new(Self { oauth, store, state: Mutex::new(tokens) }))
+        Ok(Arc::new(Self {
+            oauth,
+            store,
+            state: Mutex::new(tokens),
+        }))
     }
 
     /// Return a currently-valid access token, refreshing and persisting it if it
@@ -244,7 +254,10 @@ pub async fn run_interactive(config: &Config) -> Result<()> {
 
     let tokens = oauth.exchange_code(code).await?;
     store.save(&tokens)?;
-    println!("\n✓ Authorized. Tokens saved to {}.", st.token_store.display());
+    println!(
+        "\n✓ Authorized. Tokens saved to {}.",
+        st.token_store.display()
+    );
     Ok(())
 }
 

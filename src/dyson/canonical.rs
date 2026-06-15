@@ -72,16 +72,28 @@ pub fn to_observations(serial: &str, state: &serde_json::Map<String, Json>) -> V
     // `p25r`/`p10r` are the "raw" PM channels on newer firmware; `pm25`/`pm10`
     // the older keys. libdyson reads the raw key first, then falls back.
     if let Some(v) = field_i64(state, &["p25r", "pm25"]) {
-        push("pm25", C::Pm25, Value::quantity(v as f64, MicrogramsPerCubicMeter));
+        push(
+            "pm25",
+            C::Pm25,
+            Value::quantity(v as f64, MicrogramsPerCubicMeter),
+        );
     }
     if let Some(v) = field_i64(state, &["p10r", "pm10"]) {
-        push("pm10", C::Pm10, Value::quantity(v as f64, MicrogramsPerCubicMeter));
+        push(
+            "pm10",
+            C::Pm10,
+            Value::quantity(v as f64, MicrogramsPerCubicMeter),
+        );
     }
 
     // ----- Temperature: `tact` is deci-Kelvin -> Celsius -----
     if let Some(raw) = field_f64(state, &["tact"]) {
         let celsius = raw / 10.0 - KELVIN_OFFSET_C;
-        push("temperature", C::Temperature, Value::quantity(celsius, Celsius));
+        push(
+            "temperature",
+            C::Temperature,
+            Value::quantity(celsius, Celsius),
+        );
     }
 
     // ----- Humidity (%) -----
@@ -99,12 +111,20 @@ pub fn to_observations(serial: &str, state: &serde_json::Map<String, Json>) -> V
 
     // ----- Filter life (%) -----
     if let Some(v) = field_i64(state, &["hflr"]) {
-        push("hepa_filter_life", C::FilterLife, Value::quantity(v as f64, Percent));
+        push(
+            "hepa_filter_life",
+            C::FilterLife,
+            Value::quantity(v as f64, Percent),
+        );
     }
     // `cflr == "INV"` (no carbon filter fitted) is caught by the sentinel check
     // in `field_*`, so this only fires when a real percentage is present.
     if let Some(v) = field_i64(state, &["cflr"]) {
-        push("carbon_filter_life", C::FilterLife, Value::quantity(v as f64, Percent));
+        push(
+            "carbon_filter_life",
+            C::FilterLife,
+            Value::quantity(v as f64, Percent),
+        );
     }
 
     // ----- Fan speed (1–10 step) -----
@@ -113,7 +133,11 @@ pub fn to_observations(serial: &str, state: &serde_json::Map<String, Json>) -> V
     // left showing an uninitialized garbage default. (`fnsp` absent or a sentinel
     // like `OFF` still emits nothing.)
     if let Some(s) = field_str(state, &["fnsp"]) {
-        push("fan_speed", C::FanSpeed, Value::Count(s.trim().parse().unwrap_or(0)));
+        push(
+            "fan_speed",
+            C::FanSpeed,
+            Value::Count(s.trim().parse().unwrap_or(0)),
+        );
     }
 
     out
@@ -207,11 +231,17 @@ mod tests {
 
         let pm25 = find(&obs, "dyson.NK6-EU-HHA1111A.pm25").expect("pm25");
         assert_eq!(pm25.class, DeviceClass::Pm25);
-        assert_eq!(pm25.value, Value::quantity(12.0, Unit::MicrogramsPerCubicMeter));
+        assert_eq!(
+            pm25.value,
+            Value::quantity(12.0, Unit::MicrogramsPerCubicMeter)
+        );
 
         let pm10 = find(&obs, "dyson.NK6-EU-HHA1111A.pm10").expect("pm10");
         assert_eq!(pm10.class, DeviceClass::Pm10);
-        assert_eq!(pm10.value, Value::quantity(8.0, Unit::MicrogramsPerCubicMeter));
+        assert_eq!(
+            pm10.value,
+            Value::quantity(8.0, Unit::MicrogramsPerCubicMeter)
+        );
 
         // VOC / NO2 ship as a unitless index (Count), not a quantity.
         let voc = find(&obs, "dyson.NK6-EU-HHA1111A.voc").expect("voc");
@@ -224,7 +254,9 @@ mod tests {
         // tact: 2950 deci-Kelvin -> 295.0 K -> 21.85 °C.
         let temp = find(&obs, "dyson.NK6-EU-HHA1111A.temperature").expect("temperature");
         assert_eq!(temp.class, DeviceClass::Temperature);
-        let Value::Quantity { value, unit } = temp.value else { panic!("quantity") };
+        let Value::Quantity { value, unit } = temp.value else {
+            panic!("quantity")
+        };
         assert_eq!(unit, Unit::Celsius);
         assert!((value - 21.85).abs() < 1e-9, "got {value}");
 
@@ -294,7 +326,11 @@ mod tests {
         }));
         for obs in to_observations("SN", &s) {
             let channel = obs.entity.as_str().rsplit('.').next().unwrap();
-            assert_eq!(class_for_channel(channel), Some(obs.class), "channel {channel}");
+            assert_eq!(
+                class_for_channel(channel),
+                Some(obs.class),
+                "channel {channel}"
+            );
         }
         assert_eq!(class_for_channel("nonsense"), None);
     }

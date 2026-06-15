@@ -92,8 +92,14 @@ mod tests {
         let env: Envelope<QuotaAll> = serde_json::from_str(raw).unwrap();
         assert!(env.is_ok());
         let data = env.data.unwrap();
-        assert_eq!(data.get("bms_bmsStatus.soc").and_then(|v| v.as_f64()), Some(73.0));
-        assert_eq!(data.get("inv.outputWatts").and_then(|v| v.as_f64()), Some(120.5));
+        assert_eq!(
+            data.get("bms_bmsStatus.soc").and_then(|v| v.as_f64()),
+            Some(73.0)
+        );
+        assert_eq!(
+            data.get("inv.outputWatts").and_then(|v| v.as_f64()),
+            Some(120.5)
+        );
     }
 
     #[test]

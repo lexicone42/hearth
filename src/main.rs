@@ -28,10 +28,9 @@ const BUS_CAPACITY: usize = 64;
 async fn main() -> Result<()> {
     init_tracing();
 
-    let config_path =
-        std::env::var("HEARTH_CONFIG").unwrap_or_else(|_| "config.toml".to_string());
-    let config = Config::load(&config_path)
-        .with_context(|| format!("loading config from {config_path}"))?;
+    let config_path = std::env::var("HEARTH_CONFIG").unwrap_or_else(|_| "config.toml".to_string());
+    let config =
+        Config::load(&config_path).with_context(|| format!("loading config from {config_path}"))?;
 
     // Subcommand dispatch: `auth` runs the one-time OAuth flow, then exits.
     if let Some(cmd) = std::env::args().nth(1) {
@@ -260,7 +259,7 @@ async fn run_ecoflow(
 
 fn init_tracing() {
     use tracing_subscriber::{EnvFilter, fmt};
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,hearth=debug"));
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,hearth=debug"));
     fmt().with_env_filter(filter).init();
 }

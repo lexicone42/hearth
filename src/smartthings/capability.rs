@@ -60,7 +60,12 @@ pub fn capability_id(class: DeviceClass) -> Option<&'static str> {
 pub fn to_event(obs: &Observation, system: UnitSystem) -> Option<StEvent> {
     let (capability, attribute) = standard_capability(obs.class)?;
     let (value, unit) = encode_value(obs, system)?;
-    Some(StEvent { capability, attribute, value, unit })
+    Some(StEvent {
+        capability,
+        attribute,
+        value,
+        unit,
+    })
 }
 
 /// Encode the value + unit for a class that has a standard capability.
@@ -107,7 +112,10 @@ fn encode_value(
         // would require re-provisioning the device.)
         C::FilterLife => {
             let (value, _) = quantity(&obs.value)?;
-            Some((json!(if value <= 10.0 { "replace" } else { "normal" }), None))
+            Some((
+                json!(if value <= 10.0 { "replace" } else { "normal" }),
+                None,
+            ))
         }
         C::BatteryLow => match obs.value {
             Value::Flag(low) => Some((json!(if low { 10 } else { 100 }), Some("%"))),
@@ -166,7 +174,10 @@ mod tests {
 
     #[test]
     fn temperature_respects_unit_system() {
-        let o = obs(DeviceClass::Temperature, Value::quantity(72.5, Unit::Fahrenheit));
+        let o = obs(
+            DeviceClass::Temperature,
+            Value::quantity(72.5, Unit::Fahrenheit),
+        );
 
         let imp = to_event(&o, UnitSystem::Imperial).unwrap();
         assert_eq!(imp.capability, "temperatureMeasurement");
@@ -198,7 +209,10 @@ mod tests {
         assert_eq!(b.value, json!(10));
 
         let w = to_event(
-            &obs(DeviceClass::WindSpeed, Value::quantity(4.0, Unit::MilesPerHour)),
+            &obs(
+                DeviceClass::WindSpeed,
+                Value::quantity(4.0, Unit::MilesPerHour),
+            ),
             UnitSystem::Imperial,
         );
         assert!(w.is_none());
@@ -206,8 +220,14 @@ mod tests {
 
     #[test]
     fn capability_id_for_provisioning() {
-        assert_eq!(capability_id(DeviceClass::Temperature), Some("temperatureMeasurement"));
-        assert_eq!(capability_id(DeviceClass::Humidity), Some("relativeHumidityMeasurement"));
+        assert_eq!(
+            capability_id(DeviceClass::Temperature),
+            Some("temperatureMeasurement")
+        );
+        assert_eq!(
+            capability_id(DeviceClass::Humidity),
+            Some("relativeHumidityMeasurement")
+        );
         assert_eq!(capability_id(DeviceClass::WindSpeed), None);
     }
 
@@ -237,7 +257,10 @@ mod tests {
 
         // Energy -> kWh on `energyMeter`; 1234 Wh scales to 1.234 kWh.
         let e = to_event(
-            &obs(DeviceClass::Energy, Value::quantity(1234.0, Unit::WattHours)),
+            &obs(
+                DeviceClass::Energy,
+                Value::quantity(1234.0, Unit::WattHours),
+            ),
             UnitSystem::Imperial,
         )
         .unwrap();
@@ -258,7 +281,10 @@ mod tests {
     fn dyson_air_quality_and_fan_classes_map() {
         // PM10 -> the coarse dust sensor, in µg/m³ (system-agnostic).
         let pm10 = to_event(
-            &obs(DeviceClass::Pm10, Value::quantity(8.0, Unit::MicrogramsPerCubicMeter)),
+            &obs(
+                DeviceClass::Pm10,
+                Value::quantity(8.0, Unit::MicrogramsPerCubicMeter),
+            ),
             UnitSystem::Imperial,
         )
         .unwrap();
@@ -279,8 +305,11 @@ mod tests {
         assert_eq!(voc.unit, None);
 
         // Fan speed -> fanSpeed.fanSpeed, a unitless integer step.
-        let fan = to_event(&obs(DeviceClass::FanSpeed, Value::Count(7)), UnitSystem::Imperial)
-            .unwrap();
+        let fan = to_event(
+            &obs(DeviceClass::FanSpeed, Value::Count(7)),
+            UnitSystem::Imperial,
+        )
+        .unwrap();
         assert_eq!(fan.capability, "fanSpeed");
         assert_eq!(fan.attribute, "fanSpeed");
         assert_eq!(fan.value, json!(7));
@@ -288,7 +317,10 @@ mod tests {
 
         // Filter life -> filterStatus enum: "normal" while healthy, "replace" low.
         let healthy = to_event(
-            &obs(DeviceClass::FilterLife, Value::quantity(89.0, Unit::Percent)),
+            &obs(
+                DeviceClass::FilterLife,
+                Value::quantity(89.0, Unit::Percent),
+            ),
             UnitSystem::Imperial,
         )
         .unwrap();
@@ -310,11 +342,13 @@ mod tests {
         // NO2 deliberately maps to nothing (airQuality is single-value and
         // claimed by VOC); it must be counted, not emitted.
         assert_eq!(capability_id(DeviceClass::NitrogenDioxide), None);
-        assert!(to_event(
-            &obs(DeviceClass::NitrogenDioxide, Value::Count(4)),
-            UnitSystem::Imperial
-        )
-        .is_none());
+        assert!(
+            to_event(
+                &obs(DeviceClass::NitrogenDioxide, Value::Count(4)),
+                UnitSystem::Imperial
+            )
+            .is_none()
+        );
     }
 
     #[test]

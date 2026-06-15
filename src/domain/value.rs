@@ -93,7 +93,9 @@ impl Unit {
         }
     }
 
-    /// Value in the dimension's base unit -> this unit.
+    /// Value in the dimension's base unit -> this unit. Deliberately symmetric
+    /// with `to_base`, hence `from_*` taking `self`.
+    #[allow(clippy::wrong_self_convention)]
     fn from_base(self, v: f64) -> f64 {
         match self {
             Unit::Fahrenheit => v * 9.0 / 5.0 + 32.0,
@@ -146,18 +148,13 @@ impl fmt::Display for Unit {
     }
 }
 
-/// Preferred unit system for display/output.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Preferred unit system for display/output. Defaults to imperial.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum UnitSystem {
     Metric,
+    #[default]
     Imperial,
-}
-
-impl Default for UnitSystem {
-    fn default() -> Self {
-        UnitSystem::Imperial
-    }
 }
 
 impl UnitSystem {
@@ -216,9 +213,10 @@ impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             // UV index etc. read better without a trailing unit symbol.
-            Value::Quantity { value, unit } if matches!(unit, Unit::Index) => {
-                write!(f, "{value:.1}")
-            }
+            Value::Quantity {
+                value,
+                unit: Unit::Index,
+            } => write!(f, "{value:.1}"),
             Value::Quantity { value, unit } => write!(f, "{value:.1} {unit}"),
             Value::Count(n) => write!(f, "{n}"),
             Value::Flag(b) => write!(f, "{b}"),
@@ -237,17 +235,42 @@ mod tests {
 
     #[test]
     fn temperature_conversions() {
-        assert!(approx(Unit::Fahrenheit.convert(32.0, Unit::Celsius).unwrap(), 0.0));
-        assert!(approx(Unit::Fahrenheit.convert(212.0, Unit::Celsius).unwrap(), 100.0));
-        assert!(approx(Unit::Celsius.convert(20.0, Unit::Fahrenheit).unwrap(), 68.0));
+        assert!(approx(
+            Unit::Fahrenheit.convert(32.0, Unit::Celsius).unwrap(),
+            0.0
+        ));
+        assert!(approx(
+            Unit::Fahrenheit.convert(212.0, Unit::Celsius).unwrap(),
+            100.0
+        ));
+        assert!(approx(
+            Unit::Celsius.convert(20.0, Unit::Fahrenheit).unwrap(),
+            68.0
+        ));
     }
 
     #[test]
     fn other_dimension_conversions() {
-        assert!(approx(Unit::InchesOfMercury.convert(29.92, Unit::Hectopascal).unwrap(), 1013.21));
-        assert!(approx(Unit::MilesPerHour.convert(10.0, Unit::KilometersPerHour).unwrap(), 16.0934));
-        assert!(approx(Unit::Inches.convert(1.0, Unit::Millimeters).unwrap(), 25.4));
-        assert!(approx(Unit::Miles.convert(1.0, Unit::Kilometers).unwrap(), 1.60934));
+        assert!(approx(
+            Unit::InchesOfMercury
+                .convert(29.92, Unit::Hectopascal)
+                .unwrap(),
+            1013.21
+        ));
+        assert!(approx(
+            Unit::MilesPerHour
+                .convert(10.0, Unit::KilometersPerHour)
+                .unwrap(),
+            16.0934
+        ));
+        assert!(approx(
+            Unit::Inches.convert(1.0, Unit::Millimeters).unwrap(),
+            25.4
+        ));
+        assert!(approx(
+            Unit::Miles.convert(1.0, Unit::Kilometers).unwrap(),
+            1.60934
+        ));
     }
 
     #[test]
@@ -267,6 +290,9 @@ mod tests {
         // System-agnostic and non-quantity values pass through untouched.
         let pct = Value::quantity(55.0, Unit::Percent);
         assert_eq!(pct.in_system(UnitSystem::Metric), pct);
-        assert_eq!(Value::Count(3).in_system(UnitSystem::Metric), Value::Count(3));
+        assert_eq!(
+            Value::Count(3).in_system(UnitSystem::Metric),
+            Value::Count(3)
+        );
     }
 }
