@@ -35,16 +35,36 @@ pub fn to_observations(reading: &AwReading) -> Vec<Observation> {
 
     // ----- Outdoor -----
     if let Some(v) = reading.tempf {
-        push("outdoor", "temperature", C::Temperature, Value::quantity(v, Fahrenheit));
+        push(
+            "outdoor",
+            "temperature",
+            C::Temperature,
+            Value::quantity(v, Fahrenheit),
+        );
     }
     if let Some(v) = reading.humidity {
-        push("outdoor", "humidity", C::Humidity, Value::quantity(v, Percent));
+        push(
+            "outdoor",
+            "humidity",
+            C::Humidity,
+            Value::quantity(v, Percent),
+        );
     }
     if let Some(v) = reading.feels_like {
-        push("outdoor", "feels_like", C::ApparentTemperature, Value::quantity(v, Fahrenheit));
+        push(
+            "outdoor",
+            "feels_like",
+            C::ApparentTemperature,
+            Value::quantity(v, Fahrenheit),
+        );
     }
     if let Some(v) = reading.dew_point {
-        push("outdoor", "dew_point", C::DewPoint, Value::quantity(v, Fahrenheit));
+        push(
+            "outdoor",
+            "dew_point",
+            C::DewPoint,
+            Value::quantity(v, Fahrenheit),
+        );
     }
     if let Some(v) = reading.battout {
         // Ambient encodes batteries as 1 = OK, 0 = low.
@@ -53,16 +73,36 @@ pub fn to_observations(reading: &AwReading) -> Vec<Observation> {
 
     // ----- Indoor (console) -----
     if let Some(v) = reading.tempinf {
-        push("indoor", "temperature", C::Temperature, Value::quantity(v, Fahrenheit));
+        push(
+            "indoor",
+            "temperature",
+            C::Temperature,
+            Value::quantity(v, Fahrenheit),
+        );
     }
     if let Some(v) = reading.humidityin {
-        push("indoor", "humidity", C::Humidity, Value::quantity(v, Percent));
+        push(
+            "indoor",
+            "humidity",
+            C::Humidity,
+            Value::quantity(v, Percent),
+        );
     }
     if let Some(v) = reading.feels_like_in {
-        push("indoor", "feels_like", C::ApparentTemperature, Value::quantity(v, Fahrenheit));
+        push(
+            "indoor",
+            "feels_like",
+            C::ApparentTemperature,
+            Value::quantity(v, Fahrenheit),
+        );
     }
     if let Some(v) = reading.dew_point_in {
-        push("indoor", "dew_point", C::DewPoint, Value::quantity(v, Fahrenheit));
+        push(
+            "indoor",
+            "dew_point",
+            C::DewPoint,
+            Value::quantity(v, Fahrenheit),
+        );
     }
     if let Some(v) = reading.battin {
         push("indoor", "battery_low", C::BatteryLow, Value::Flag(v == 0));
@@ -70,53 +110,128 @@ pub fn to_observations(reading: &AwReading) -> Vec<Observation> {
 
     // ----- Wind -----
     if let Some(v) = reading.windspeedmph {
-        push("wind", "speed", C::WindSpeed, Value::quantity(v, MilesPerHour));
+        push(
+            "wind",
+            "speed",
+            C::WindSpeed,
+            Value::quantity(v, MilesPerHour),
+        );
     }
     if let Some(v) = reading.windspdmph_avg10m {
-        push("wind", "speed_avg_10m", C::WindSpeed, Value::quantity(v, MilesPerHour));
+        push(
+            "wind",
+            "speed_avg_10m",
+            C::WindSpeed,
+            Value::quantity(v, MilesPerHour),
+        );
     }
     if let Some(v) = reading.windgustmph {
-        push("wind", "gust", C::WindGust, Value::quantity(v, MilesPerHour));
+        push(
+            "wind",
+            "gust",
+            C::WindGust,
+            Value::quantity(v, MilesPerHour),
+        );
     }
     if let Some(v) = reading.maxdailygust {
-        push("wind", "max_daily_gust", C::WindGust, Value::quantity(v, MilesPerHour));
+        push(
+            "wind",
+            "max_daily_gust",
+            C::WindGust,
+            Value::quantity(v, MilesPerHour),
+        );
     }
     if let Some(v) = reading.winddir {
-        push("wind", "bearing", C::WindBearing, Value::quantity(v, Degrees));
+        push(
+            "wind",
+            "bearing",
+            C::WindBearing,
+            Value::quantity(v, Degrees),
+        );
     }
     if let Some(v) = reading.winddir_avg10m {
-        push("wind", "bearing_avg_10m", C::WindBearing, Value::quantity(v, Degrees));
+        push(
+            "wind",
+            "bearing_avg_10m",
+            C::WindBearing,
+            Value::quantity(v, Degrees),
+        );
     }
 
     // ----- Barometer -----
     if let Some(v) = reading.baromrelin {
-        push("barometer", "relative", C::Pressure, Value::quantity(v, InchesOfMercury));
+        push(
+            "barometer",
+            "relative",
+            C::Pressure,
+            Value::quantity(v, InchesOfMercury),
+        );
     }
     if let Some(v) = reading.baromabsin {
-        push("barometer", "absolute", C::Pressure, Value::quantity(v, InchesOfMercury));
+        push(
+            "barometer",
+            "absolute",
+            C::Pressure,
+            Value::quantity(v, InchesOfMercury),
+        );
     }
 
     // ----- Rain -----
     if let Some(v) = reading.hourlyrainin {
-        push("rain", "rate", C::PrecipitationRate, Value::quantity(v, Inches));
+        push(
+            "rain",
+            "rate",
+            C::PrecipitationRate,
+            Value::quantity(v, Inches),
+        );
     }
     if let Some(v) = reading.dailyrainin {
-        push("rain", "daily", C::PrecipitationAccumulation, Value::quantity(v, Inches));
+        push(
+            "rain",
+            "daily",
+            C::PrecipitationAccumulation,
+            Value::quantity(v, Inches),
+        );
     }
     if let Some(v) = reading.weeklyrainin {
-        push("rain", "weekly", C::PrecipitationAccumulation, Value::quantity(v, Inches));
+        push(
+            "rain",
+            "weekly",
+            C::PrecipitationAccumulation,
+            Value::quantity(v, Inches),
+        );
     }
     if let Some(v) = reading.monthlyrainin {
-        push("rain", "monthly", C::PrecipitationAccumulation, Value::quantity(v, Inches));
+        push(
+            "rain",
+            "monthly",
+            C::PrecipitationAccumulation,
+            Value::quantity(v, Inches),
+        );
     }
     if let Some(v) = reading.yearlyrainin {
-        push("rain", "yearly", C::PrecipitationAccumulation, Value::quantity(v, Inches));
+        push(
+            "rain",
+            "yearly",
+            C::PrecipitationAccumulation,
+            Value::quantity(v, Inches),
+        );
     }
     if let Some(v) = reading.totalrainin {
-        push("rain", "total", C::PrecipitationAccumulation, Value::quantity(v, Inches));
+        push(
+            "rain",
+            "total",
+            C::PrecipitationAccumulation,
+            Value::quantity(v, Inches),
+        );
     }
     if let Some(v) = reading.eventrainin {
-        push("rain", "event", C::PrecipitationAccumulation, Value::quantity(v, Inches));
+        push(
+            "rain",
+            "event",
+            C::PrecipitationAccumulation,
+            Value::quantity(v, Inches),
+        );
     }
     if let Some(v) = &reading.last_rain {
         push("rain", "last", C::Timestamp, Value::Text(v.clone()));
@@ -127,26 +242,56 @@ pub fn to_observations(reading: &AwReading) -> Vec<Observation> {
         push("sun", "uv_index", C::UvIndex, Value::quantity(v, Index));
     }
     if let Some(v) = reading.solarradiation {
-        push("sun", "solar_radiation", C::SolarRadiation, Value::quantity(v, WattsPerSquareMeter));
+        push(
+            "sun",
+            "solar_radiation",
+            C::SolarRadiation,
+            Value::quantity(v, WattsPerSquareMeter),
+        );
     }
 
     // ----- Air quality -----
     if let Some(v) = reading.pm25 {
-        push("air_quality", "pm25", C::Pm25, Value::quantity(v, MicrogramsPerCubicMeter));
+        push(
+            "air_quality",
+            "pm25",
+            C::Pm25,
+            Value::quantity(v, MicrogramsPerCubicMeter),
+        );
     }
     if let Some(v) = reading.pm25_24h {
-        push("air_quality", "pm25_24h_avg", C::Pm25, Value::quantity(v, MicrogramsPerCubicMeter));
+        push(
+            "air_quality",
+            "pm25_24h_avg",
+            C::Pm25,
+            Value::quantity(v, MicrogramsPerCubicMeter),
+        );
     }
 
     // ----- Lightning -----
     if let Some(v) = reading.lightning_day {
-        push("lightning", "strikes_today", C::LightningStrikeCount, Value::Count(v));
+        push(
+            "lightning",
+            "strikes_today",
+            C::LightningStrikeCount,
+            Value::Count(v),
+        );
     }
     if let Some(v) = reading.lightning_distance {
-        push("lightning", "distance", C::LightningDistance, Value::quantity(v, Miles));
+        push(
+            "lightning",
+            "distance",
+            C::LightningDistance,
+            Value::quantity(v, Miles),
+        );
     }
     if let Some(v) = reading.lightning_time {
-        push("lightning", "last_strike", C::Timestamp, Value::Text(v.to_string()));
+        push(
+            "lightning",
+            "last_strike",
+            C::Timestamp,
+            Value::Text(v.to_string()),
+        );
     }
 
     // ----- Indexed remote sensors, parsed from `extra` -----
@@ -158,16 +303,31 @@ pub fn to_observations(reading: &AwReading) -> Vec<Observation> {
     for n in 1..=MAX_REMOTE_SENSORS {
         let node = format!("sensor_{n}");
         if let Some(v) = extra_f64(extra, &format!("temp{n}f")) {
-            push(&node, "temperature", C::Temperature, Value::quantity(v, Fahrenheit));
+            push(
+                &node,
+                "temperature",
+                C::Temperature,
+                Value::quantity(v, Fahrenheit),
+            );
         }
         if let Some(v) = extra_f64(extra, &format!("humidity{n}")) {
             push(&node, "humidity", C::Humidity, Value::quantity(v, Percent));
         }
         if let Some(v) = extra_f64(extra, &format!("feelsLike{n}")) {
-            push(&node, "feels_like", C::ApparentTemperature, Value::quantity(v, Fahrenheit));
+            push(
+                &node,
+                "feels_like",
+                C::ApparentTemperature,
+                Value::quantity(v, Fahrenheit),
+            );
         }
         if let Some(v) = extra_f64(extra, &format!("dewPoint{n}")) {
-            push(&node, "dew_point", C::DewPoint, Value::quantity(v, Fahrenheit));
+            push(
+                &node,
+                "dew_point",
+                C::DewPoint,
+                Value::quantity(v, Fahrenheit),
+            );
         }
         if let Some(v) = extra_i64(extra, &format!("batt{n}")) {
             push(&node, "battery_low", C::BatteryLow, Value::Flag(v == 0));
@@ -176,7 +336,12 @@ pub fn to_observations(reading: &AwReading) -> Vec<Observation> {
     for n in 1..=MAX_REMOTE_SENSORS {
         let node = format!("soil_{n}");
         if let Some(v) = extra_f64(extra, &format!("soilhum{n}")) {
-            push(&node, "moisture", C::SoilMoisture, Value::quantity(v, Percent));
+            push(
+                &node,
+                "moisture",
+                C::SoilMoisture,
+                Value::quantity(v, Percent),
+            );
         }
         if let Some(v) = extra_i64(extra, &format!("battsm{n}")) {
             push(&node, "battery_low", C::BatteryLow, Value::Flag(v == 0));
@@ -240,7 +405,11 @@ mod tests {
         extra.insert("soilhum3".to_string(), json!(9));
         extra.insert("battsm3".to_string(), json!(0));
 
-        let reading = AwReading { dateutc: Some(1), extra, ..Default::default() };
+        let reading = AwReading {
+            dateutc: Some(1),
+            extra,
+            ..Default::default()
+        };
         let obs = to_observations(&reading);
 
         let t = find(&obs, "ambient_weather.sensor_7.temperature").expect("sensor 7 temp");

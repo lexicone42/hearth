@@ -101,18 +101,10 @@ const SOC_KEYS: &[&str] = &[
 ];
 
 /// Summed output power (W). `pd.wattsOutSum` is the canonical Delta/River key.
-const OUTPUT_WATTS_KEYS: &[&str] = &[
-    "pd.wattsOutSum",
-    "inv.outputWatts",
-    "mppt.outWatts",
-];
+const OUTPUT_WATTS_KEYS: &[&str] = &["pd.wattsOutSum", "inv.outputWatts", "mppt.outWatts"];
 
 /// Summed input power (W). `pd.wattsInSum` is the canonical Delta/River key.
-const INPUT_WATTS_KEYS: &[&str] = &[
-    "pd.wattsInSum",
-    "inv.inputWatts",
-    "mppt.inWatts",
-];
+const INPUT_WATTS_KEYS: &[&str] = &["pd.wattsInSum", "inv.inputWatts", "mppt.inWatts"];
 
 /// Cumulative input energy (Wh), best-effort.
 const INPUT_ENERGY_KEYS: &[&str] = &["pd.chgPowerAc", "pd.chgSunPower"];
@@ -131,7 +123,8 @@ fn is_known_key(key: &str) -> bool {
 
 /// First present-and-numeric value among `keys`, in order.
 fn first_f64(quota: &QuotaAll, keys: &[&str]) -> Option<f64> {
-    keys.iter().find_map(|k| quota.get(*k).and_then(serde_json::Value::as_f64))
+    keys.iter()
+        .find_map(|k| quota.get(*k).and_then(serde_json::Value::as_f64))
 }
 
 #[cfg(test)]
@@ -140,7 +133,10 @@ mod tests {
     use serde_json::json;
 
     fn quota(pairs: &[(&str, serde_json::Value)]) -> QuotaAll {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect()
     }
 
     fn find<'a>(obs: &'a [Observation], id: &str) -> Option<&'a Observation> {

@@ -96,11 +96,16 @@ pub async fn run_provision(config: &Config) -> Result<()> {
                     Some(_) => {}
                     None => println!("    {entity}: no standard capability yet — skipped"),
                 },
-                None => println!("    {entity}: unknown entity (not in a reading or a known dyson channel) — skipped"),
+                None => println!(
+                    "    {entity}: unknown entity (not in a reading or a known dyson channel) — skipped"
+                ),
             }
         }
         if capabilities.is_empty() {
-            println!("• '{}': no mappable capabilities — not created", device.name);
+            println!(
+                "• '{}': no mappable capabilities — not created",
+                device.name
+            );
             continue;
         }
 
@@ -108,7 +113,11 @@ pub async fn run_provision(config: &Config) -> Result<()> {
         let id = client
             .create_virtual_device(&device.name, &location_id, component, &capabilities)
             .await?;
-        println!("✓ created '{}' ({id}) with [{}]", device.name, capabilities.join(", "));
+        println!(
+            "✓ created '{}' ({id}) with [{}]",
+            device.name,
+            capabilities.join(", ")
+        );
         ids.insert(device.name.clone(), id);
         created += 1;
     }

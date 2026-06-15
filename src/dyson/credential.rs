@@ -96,9 +96,7 @@ fn parse_ssid(ssid: &str) -> Result<(String, String)> {
         bail!("Dyson SSID {ssid:?} is missing the product-type suffix");
     };
     if !is_valid_serial(serial) {
-        bail!(
-            "Dyson SSID serial {serial:?} doesn't match [0-9A-Z]{{3}}-[A-Z]{{2}}-[0-9A-Z]{{8}}"
-        );
+        bail!("Dyson SSID serial {serial:?} doesn't match [0-9A-Z]{{3}}-[A-Z]{{2}}-[0-9A-Z]{{8}}");
     }
     if !is_valid_product_type(raw_type) {
         bail!("Dyson SSID product type {raw_type:?} doesn't match [0-9]{{3}}[A-Z]?");

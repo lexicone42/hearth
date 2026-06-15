@@ -20,6 +20,11 @@ impl Observation {
         value: Value,
         observed_at: Option<i64>,
     ) -> Self {
-        Self { entity, class, value, observed_at }
+        Self {
+            entity,
+            class,
+            value,
+            observed_at,
+        }
     }
 }

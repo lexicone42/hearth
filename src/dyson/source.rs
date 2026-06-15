@@ -74,12 +74,18 @@ impl DysonSource {
 
     /// `{product_type}/{serial}/status/current` — the state/sensor feed.
     fn status_topic(&self) -> String {
-        format!("{}/{}/status/current", self.info.product_type, self.info.serial)
+        format!(
+            "{}/{}/status/current",
+            self.info.product_type, self.info.serial
+        )
     }
 
     /// `{product_type}/{serial}/status/faults` — optional fault feed.
     fn faults_topic(&self) -> String {
-        format!("{}/{}/status/faults", self.info.product_type, self.info.serial)
+        format!(
+            "{}/{}/status/faults",
+            self.info.product_type, self.info.serial
+        )
     }
 
     /// `{product_type}/{serial}/command` — where state-request primers go.
@@ -166,10 +172,18 @@ fn resolve_mqtt_info(cfg: &DysonConfig) -> Result<MqttInfo> {
         .credential
         .clone()
         .or_else(|| derived.as_ref().map(|d| d.credential.clone()))
-        .or_else(|| cfg.wifi_password.as_deref().map(credential::mqtt_credential))
+        .or_else(|| {
+            cfg.wifi_password
+                .as_deref()
+                .map(credential::mqtt_credential)
+        })
         .context("dyson config needs `credential`, or `wifi_password` to derive it")?;
 
-    Ok(MqttInfo { serial, product_type, credential })
+    Ok(MqttInfo {
+        serial,
+        product_type,
+        credential,
+    })
 }
 
 /// Subscribe to the status (and best-effort faults) topics. Logged, never fatal.
@@ -188,7 +202,10 @@ async fn subscribe(client: &AsyncClient, status: &str, faults: &str) {
 /// Publish the two state-request primers to the command topic so the device
 /// emits a full `CURRENT-STATE` and environmental snapshot right after connect.
 async fn prime_state(client: &AsyncClient, command: &str) {
-    for msg in ["REQUEST-CURRENT-STATE", "REQUEST-PRODUCT-ENVIRONMENT-CURRENT-SENSOR-DATA"] {
+    for msg in [
+        "REQUEST-CURRENT-STATE",
+        "REQUEST-PRODUCT-ENVIRONMENT-CURRENT-SENSOR-DATA",
+    ] {
         let payload = format!(r#"{{"msg":"{msg}","time":"{}"}}"#, mqtt_time());
         if let Err(e) = client
             .publish(command, QoS::AtMostOnce, false, payload.into_bytes())

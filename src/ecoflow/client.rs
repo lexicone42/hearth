@@ -208,7 +208,11 @@ fn flatten_into(prefix: String, value: &serde_json::Value, out: &mut Vec<(String
     match value {
         Value::Object(map) => {
             for (k, v) in map {
-                let key = if prefix.is_empty() { k.clone() } else { format!("{prefix}.{k}") };
+                let key = if prefix.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{prefix}.{k}")
+                };
                 flatten_into(key, v, out);
             }
         }
@@ -277,7 +281,10 @@ mod tests {
         );
         // 64 lowercase hex chars, by construction.
         assert_eq!(sign.len(), 64);
-        assert!(sign.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+        assert!(
+            sign.chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+        );
     }
 
     #[test]
