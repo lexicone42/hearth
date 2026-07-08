@@ -23,6 +23,10 @@ pub struct Config {
     /// poll loop then never touches EcoFlow.
     #[serde(default)]
     pub ecoflow: Option<EcoflowConfig>,
+    /// Schlage source (a Wi-Fi lock, via Schlage's unofficial cloud). Omit the
+    /// whole `[schlage]` section to disable it; no Schlage task is then spawned.
+    #[serde(default)]
+    pub schlage: Option<SchlageConfig>,
     /// Dyson sources (local MQTT push). Each `[[dyson]]` block is one device;
     /// omit them all to disable Dyson (no MQTT tasks spawned).
     #[serde(default)]
@@ -159,6 +163,15 @@ pub struct EcoflowConfig {
     /// API base host; defaults to `api-e.ecoflow.com`.
     #[serde(default)]
     pub base_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SchlageConfig {
+    /// Schlage Home account username (the email you sign in with).
+    pub username: String,
+    /// Schlage Home account password. Used for the AWS Cognito SRP handshake;
+    /// held in memory only (never persisted).
+    pub password: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]

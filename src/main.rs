@@ -4,6 +4,7 @@ mod config;
 mod domain;
 mod dyson;
 mod ecoflow;
+mod schlage;
 mod smartthings;
 
 use std::time::Duration;
@@ -16,6 +17,7 @@ use crate::ambient::client::AmbientClient;
 use crate::config::Config;
 use crate::domain::Observation;
 use crate::ecoflow::client::EcoflowClient;
+use crate::schlage::client::SchlageClient;
 use crate::smartthings::SmartThingsSink;
 use crate::smartthings::client::SmartThingsClient;
 
@@ -51,6 +53,7 @@ async fn main() -> Result<()> {
         unit_system = ?config.unit_system,
         smartthings = config.smartthings.is_some(),
         ecoflow = config.ecoflow.is_some(),
+        schlage = config.schlage.is_some(),
         api = config.api.is_some(),
         dyson = config.dyson.len(),
         mac = %config.ambient.mac_address,
@@ -93,7 +96,16 @@ async fn main() -> Result<()> {
         None => None,
     };
 
-    run(client, sink, ecoflow, st_client, config).await
+    // Schlage source is optional: with no `[schlage]` section it's `None` and the
+    // source task is never spawned. Building the client is offline (an HTTP
+    // client + stored credentials); the Cognito SRP handshake happens at first
+    // poll.
+    let schlage = match &config.schlage {
+        Some(cfg) => Some(SchlageClient::new(&cfg.username, &cfg.password)?),
+        None => None,
+    };
+
+    run(client, sink, ecoflow, schlage, st_client, config).await
 }
 
 /// Internal event-bus orchestration. Each source is its own task holding a
@@ -108,6 +120,7 @@ async fn run(
     client: AmbientClient,
     sink: Option<SmartThingsSink>,
     ecoflow: Option<(EcoflowClient, Vec<String>)>,
+    schlage: Option<SchlageClient>,
     st_client: Option<SmartThingsClient>,
     config: Config,
 ) -> Result<()> {
@@ -155,6 +168,16 @@ async fn run(
         ))
     });
 
+    // ----- Schlage source task (only when `[schlage]` is configured) -----
+    let schlage = schlage.map(|client| {
+        tokio::spawn(run_schlage(
+            client,
+            config.unit_system,
+            config.poll.interval_secs,
+            tx.clone(),
+        ))
+    });
+
     // ----- Dyson source tasks (one per `[[dyson]]` device) -----
     // Push sources: no tick — each produces on its own incoming MQTT publishes,
     // all feeding the same bus (entity ids namespace by serial, so they never
@@ -196,6 +219,9 @@ async fn run(
 
     ambient.abort();
     if let Some(h) = ecoflow {
+        h.abort();
+    }
+    if let Some(h) = schlage {
         h.abort();
     }
     for h in dyson_handles {
@@ -323,9 +349,102 @@ async fn run_ecoflow(
     }
 }
 
+/// Schlage source task: ticks on the poll interval, fetches the account's locks
+/// (authenticating / refreshing the Cognito token as needed inside the client),
+/// maps each to canonical observations, logs them, and sends the batch onto the
+/// bus. Errors are logged, never fatal — Schlage's unofficial cloud can hiccup
+/// or change, and that must not take down the bridge. Mirrors `run_ecoflow`.
+/// Capped exponential backoff for a source's consecutive failures. Keeps a
+/// persistent failure — e.g. a wrong Schlage password — from re-hammering the
+/// upstream every tick, which for an auth endpoint risks locking the account.
+/// `failures` is the count so far (1 = the first failure, which retries at `base`).
+fn backoff_delay(base: Duration, max: Duration, failures: u32) -> Duration {
+    let mult = 2u32.saturating_pow(failures.saturating_sub(1).min(16));
+    base.saturating_mul(mult).min(max)
+}
+
+async fn run_schlage(
+    client: SchlageClient,
+    unit_system: domain::UnitSystem,
+    interval_secs: u64,
+    tx: mpsc::Sender<Vec<Observation>>,
+) {
+    let base = Duration::from_secs(interval_secs);
+    // Cap backoff at 30 min. Critical for an *auth* source: a persistent failure
+    // (e.g. a wrong Schlage password) must not re-attempt a full Cognito login
+    // every tick — that risks account lockout/throttling. Exponential on
+    // consecutive failures; reset to `base` on any success.
+    let max_backoff = Duration::from_secs(30 * 60);
+    let mut failures: u32 = 0;
+    loop {
+        match client.locks().await {
+            Ok(locks) => {
+                failures = 0;
+                let mut observations: Vec<Observation> = Vec::new();
+                for lock in &locks {
+                    // An offline lock's last-known state may be stale — flag it
+                    // (canonical then reports the lock as `unknown`, not a
+                    // possibly-wrong `locked`/`unlocked`).
+                    if !lock.connected {
+                        warn!(lock = %lock.name, "Schlage lock offline — reported state may be stale");
+                    }
+                    observations.extend(schlage::canonical::to_observations(lock));
+                }
+                info!(count = observations.len(), "mapped Schlage observations");
+                for obs in &observations {
+                    debug!(
+                        entity = %obs.entity,
+                        class = ?obs.class,
+                        value = %obs.value.in_system(unit_system),
+                        "observation",
+                    );
+                }
+                if tx.send(observations).await.is_err() {
+                    // Router gone (shutdown).
+                    return;
+                }
+                tokio::time::sleep(base).await;
+            }
+            // Transient failures (network, 429/5xx) likely clear soon (warn);
+            // persistent ones (bad creds, MFA, decode drift) need human action
+            // (error). Either way log the KIND + hint, then back off before
+            // retrying so a bad password can't hammer Cognito into a lockout.
+            Err(e) => {
+                failures += 1;
+                let delay = backoff_delay(base, max_backoff, failures);
+                if e.is_transient() {
+                    warn!(kind = e.kind(), error = %e, retry_in_s = delay.as_secs(), "{}", e.hint());
+                } else {
+                    error!(kind = e.kind(), error = %e, retry_in_s = delay.as_secs(), "{}", e.hint());
+                }
+                tokio::time::sleep(delay).await;
+            }
+        }
+    }
+}
+
 fn init_tracing() {
     use tracing_subscriber::{EnvFilter, fmt};
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,hearth=debug"));
     fmt().with_env_filter(filter).init();
+}
+
+#[cfg(test)]
+mod backoff_tests {
+    use super::backoff_delay;
+    use std::time::Duration;
+
+    #[test]
+    fn backoff_grows_then_caps() {
+        let base = Duration::from_secs(60);
+        let max = Duration::from_secs(1800);
+        // First failure retries at the base cadence, then doubles each time,
+        // saturating at the cap (60s * 32 = 1920s > 1800s).
+        assert_eq!(backoff_delay(base, max, 1), base);
+        assert_eq!(backoff_delay(base, max, 2), Duration::from_secs(120));
+        assert_eq!(backoff_delay(base, max, 3), Duration::from_secs(240));
+        assert_eq!(backoff_delay(base, max, 6), max);
+        assert_eq!(backoff_delay(base, max, 100), max);
+    }
 }
