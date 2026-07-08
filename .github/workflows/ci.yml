@@ -26,3 +26,18 @@ jobs:
         run: cargo test
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
+
+  secrets:
+    name: gitleaks (secret scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so a secret in any commit is caught
+      - name: Install gitleaks
+        run: |
+          ver=8.30.1
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${ver}/gitleaks_${ver}_linux_x64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin gitleaks
+      - name: Scan git history for secrets
+        run: gitleaks git --no-banner --redact

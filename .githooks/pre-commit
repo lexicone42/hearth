@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# hearth pre-commit hook: block secrets before they enter git history.
+#
+# Scans the STAGED changes (only what you're about to commit) with gitleaks.
+# Enable it once per clone:
+#
+#     git config core.hooksPath .githooks
+#
+# CI runs gitleaks too (see .github/workflows/ci.yml), so a leak is caught
+# server-side even if this local hook is skipped or gitleaks isn't installed.
+set -euo pipefail
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "⚠  gitleaks not found — skipping the local secret scan."
+  echo "   Install it to guard commits locally: https://github.com/gitleaks/gitleaks"
+  echo "   (CI still runs gitleaks, so a leak won't reach the public repo.)"
+  exit 0
+fi
+
+if ! gitleaks git --staged --redact --no-banner; then
+  echo
+  echo "✖  gitleaks flagged a potential secret in your staged changes (above)."
+  echo "   • real secret?  unstage it — secrets belong in config.toml (gitignored), not source."
+  echo "   • false positive?  allowlist it in .gitleaks.toml, or bypass ONE commit:"
+  echo "       git commit --no-verify"
+  exit 1
+fi
