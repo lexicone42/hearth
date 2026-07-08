@@ -308,16 +308,21 @@ async fn run_ecoflow(
     interval_secs: u64,
     tx: mpsc::Sender<Vec<Observation>>,
 ) {
-    let mut ticker = tokio::time::interval(Duration::from_secs(interval_secs));
+    let base = Duration::from_secs(interval_secs);
+    // Cap backoff at 30 min so a persistent failure (e.g. a wrong access/secret
+    // key -> "signature is wrong") doesn't hammer the API every tick.
+    let max_backoff = Duration::from_secs(30 * 60);
+    let mut failures: u32 = 0;
     loop {
-        ticker.tick().await;
-
         // Resolve the device list: explicit config wins, else discover.
         let sns: Vec<String> = if configured_sns.is_empty() {
             match client.device_list().await {
                 Ok(devices) => devices.into_iter().map(|d| d.sn).collect(),
                 Err(e) => {
-                    error!(error = ?e, "failed to fetch EcoFlow device list");
+                    failures += 1;
+                    let delay = backoff_delay(base, max_backoff, failures);
+                    error!(error = ?e, retry_in_s = delay.as_secs(), "failed to fetch EcoFlow device list");
+                    tokio::time::sleep(delay).await;
                     continue;
                 }
             }
@@ -325,6 +330,7 @@ async fn run_ecoflow(
             configured_sns.clone()
         };
 
+        let mut progressed = false;
         for sn in &sns {
             match client.quota_all(sn).await {
                 Ok(quota) => {
@@ -342,10 +348,22 @@ async fn run_ecoflow(
                         // Router gone (shutdown).
                         return;
                     }
+                    progressed = true;
                 }
                 Err(e) => error!(sn = %sn, error = ?e, "failed to fetch EcoFlow quota"),
             }
         }
+
+        // Reset to base cadence on any productive tick; otherwise (every device
+        // failed, or the list was empty) back off before retrying.
+        let delay = if progressed {
+            failures = 0;
+            base
+        } else {
+            failures += 1;
+            backoff_delay(base, max_backoff, failures)
+        };
+        tokio::time::sleep(delay).await;
     }
 }
 
