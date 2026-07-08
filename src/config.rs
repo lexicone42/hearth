@@ -27,6 +27,27 @@ pub struct Config {
     /// omit them all to disable Dyson (no MQTT tasks spawned).
     #[serde(default)]
     pub dyson: Vec<DysonConfig>,
+    /// Local HTTP API sink (`GET /api/latest` for LAN dashboards, e.g. the
+    /// Wear OS tile). Omit the whole `[api]` section to disable it.
+    #[serde(default)]
+    pub api: Option<ApiConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ApiConfig {
+    /// Bind address for the HTTP server. Defaults to `0.0.0.0:8091` (all
+    /// interfaces — hearth assumes a trusted LAN; bind `127.0.0.1:8091` to
+    /// keep it host-local).
+    #[serde(default = "default_api_listen")]
+    pub listen: String,
+    /// Optional static bearer token. When set, `/api/latest` requires
+    /// `Authorization: Bearer <token>`; `/healthz` stays open.
+    #[serde(default)]
+    pub token: Option<String>,
+}
+
+fn default_api_listen() -> String {
+    "0.0.0.0:8091".to_string()
 }
 
 #[derive(Debug, Clone, Deserialize)]
