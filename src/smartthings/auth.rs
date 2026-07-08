@@ -165,8 +165,27 @@ impl TokenStore {
         let text = serde_json::to_string_pretty(tokens).context("serializing tokens")?;
         std::fs::write(&self.path, text)
             .with_context(|| format!("writing token store {}", self.path.display()))?;
+        // OAuth tokens are secret. `std::fs::write` honors the umask (usually
+        // 0644 -> world-readable), so tighten to owner-only on every write —
+        // otherwise the permissions drift back after each token refresh.
+        restrict_to_owner(&self.path)?;
         Ok(())
     }
+}
+
+/// Restrict a file to owner read/write only (0600) on Unix; a no-op on other
+/// OSes. Applied after writing the token store so a refreshed secret never
+/// lands world-readable, even if the file already existed with looser perms.
+fn restrict_to_owner(path: &std::path::Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("restricting permissions on {}", path.display()))?;
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
 }
 
 /// Holds the live tokens and refreshes them just-in-time.
@@ -298,5 +317,28 @@ mod tests {
         assert_eq!(tokens.access_token, "new-access");
         assert_eq!(tokens.refresh_token, "old-refresh");
         assert!(tokens.expires_at > now_secs());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_tightens_permissions_to_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = std::env::temp_dir().join(format!("hearth-token-{}.json", std::process::id()));
+        // Pre-create it world-readable to prove save() tightens an *existing* file
+        // (the drift-back case after a token refresh).
+        std::fs::write(&path, "{}").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        TokenStore::new(&path)
+            .save(&Tokens {
+                access_token: "a".into(),
+                refresh_token: "r".into(),
+                expires_at: 0,
+            })
+            .unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        std::fs::remove_file(&path).ok();
+        assert_eq!(mode, 0o600, "refreshed token store must be owner-only");
     }
 }
