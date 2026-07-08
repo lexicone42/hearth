@@ -69,6 +69,7 @@ gitignored — see `config.example.toml` for the shape.
 - [x] EcoFlow source (HMAC-signed IoT Open API) — *awaiting developer API keys*
 - [x] Event bus + **Dyson** local-MQTT push source (live on real hardware)
 - [x] Local HTTP API sink (`[api]`): latest-value store + LAN JSON endpoint
+- [x] SmartThings read-*back* source (`[[smartthings.read]]`): lock + battery state — hearth's first bidirectional integration
 - [ ] Realtime Ambient Socket.IO ingest
 - [ ] More sources / sinks; richer SmartThings capabilities
 

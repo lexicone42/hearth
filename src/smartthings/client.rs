@@ -6,7 +6,11 @@ use crate::smartthings::capability::StEvent;
 
 const DEFAULT_BASE_URL: &str = "https://api.smartthings.com";
 
-/// Minimal SmartThings API client: virtual-device events + provisioning.
+/// Minimal SmartThings API client: virtual-device events, provisioning, and
+/// device-status reads. Cheaply cloneable — clones share one `TokenSource`
+/// (an `Arc<TokenManager>`), so the sink and the read-back source share a
+/// single, mutex-serialized token refresh rather than racing two.
+#[derive(Clone)]
 pub struct SmartThingsClient {
     http: reqwest::Client,
     base_url: String,
@@ -27,6 +31,29 @@ struct DeviceEventBody<'a> {
     value: &'a serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     unit: Option<&'a str>,
+}
+
+/// One capability attribute's current state from a device-status read. Only
+/// `value` is retained; other fields (unit, timestamp, data) are ignored.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AttrState {
+    #[serde(default)]
+    pub value: serde_json::Value,
+}
+
+/// A device's `main` component status: capability id -> attribute -> state.
+pub type MainStatus =
+    std::collections::HashMap<String, std::collections::HashMap<String, AttrState>>;
+
+#[derive(Deserialize)]
+struct DeviceStatus {
+    components: StatusComponents,
+}
+
+#[derive(Deserialize)]
+struct StatusComponents {
+    #[serde(default)]
+    main: MainStatus,
 }
 
 impl SmartThingsClient {
@@ -112,6 +139,26 @@ impl SmartThingsClient {
             .into_iter()
             .find_map(|d| d.location_id)
             .context("could not determine a locationId from existing devices")
+    }
+
+    /// Read one device's current status: `GET {base}/devices/{id}/status`.
+    /// Returns the `main` component's capability -> attribute -> state map,
+    /// consumed by the SmartThings read-back source.
+    pub async fn device_status(&self, device_id: &str) -> Result<MainStatus> {
+        let url = format!("{}/devices/{device_id}/status", self.base_url);
+        let status: DeviceStatus = self
+            .http
+            .get(url)
+            .bearer_auth(self.token().await?)
+            .send()
+            .await
+            .context("fetching device status")?
+            .error_for_status()
+            .context("SmartThings rejected the device status GET")?
+            .json()
+            .await
+            .context("decoding device status")?;
+        Ok(status.components.main)
     }
 
     /// Create a virtual device with an inline device profile, returning its id:

@@ -69,5 +69,9 @@ pub enum DeviceClass {
     Power,
     /// Accumulated electrical energy (watt-hours).
     Energy,
+    /// Lock state as text (`locked`/`unlocked`/`jammed`/`unknown`), read back
+    /// from a cloud sink (SmartThings). No standard SmartThings *write* mapping —
+    /// it flows to the local API sink / watch, not back to SmartThings.
+    Lock,
     Timestamp,
 }

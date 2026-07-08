@@ -9,5 +9,6 @@ pub mod capability;
 pub mod client;
 pub mod provision;
 pub mod sink;
+pub mod source;
 
 pub use sink::SmartThingsSink;

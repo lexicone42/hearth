@@ -21,8 +21,13 @@ pub struct SmartThingsSink {
 }
 
 impl SmartThingsSink {
-    pub fn new(config: &SmartThingsConfig, system: UnitSystem) -> Result<Self> {
-        let client = SmartThingsClient::new(config.base_url.clone(), token_source(config)?)?;
+    /// `client` is built once by `main` and shared with the read-back source,
+    /// so both share one OAuth token manager.
+    pub fn new(
+        client: SmartThingsClient,
+        config: &SmartThingsConfig,
+        system: UnitSystem,
+    ) -> Result<Self> {
         let provisioned = DeviceStore::new(config.device_store.clone())
             .load()
             .unwrap_or_default();
