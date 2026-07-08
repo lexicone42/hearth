@@ -6,7 +6,9 @@ description = "A small self-hosted home-automation hub in Rust"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal", "sync", "net"] }
+# Local HTTP API sink (`[api]`): serves the latest-value snapshot on the LAN.
+axum = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

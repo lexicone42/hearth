@@ -44,6 +44,15 @@ interval_secs = 60
 # # product_type = "438"                 # e.g. 438 = Pure Cool
 # # credential = "..."                   # the already-derived MQTT password
 
+# Optional: enable the local HTTP API sink — the latest observation per entity,
+# served as JSON on the LAN (`GET /api/latest`, liveness at `GET /healthz`).
+# Built for local dashboards (e.g. a Wear OS tile). Omit to disable.
+# [api]
+# listen = "0.0.0.0:8091"    # bind 127.0.0.1:8091 to keep it host-local
+# # Optional bearer token; when set, /api/latest requires
+# # `Authorization: Bearer <token>` (healthz stays open).
+# token = "generate-something-long-and-random"
+
 # Optional: enable the SmartThings sink. Omit this whole section to just log.
 # [smartthings]
 # token_store = "token_store.json"           # where OAuth tokens are persisted

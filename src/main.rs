@@ -1,4 +1,5 @@
 mod ambient;
+mod api;
 mod config;
 mod domain;
 mod dyson;
@@ -49,6 +50,7 @@ async fn main() -> Result<()> {
         unit_system = ?config.unit_system,
         smartthings = config.smartthings.is_some(),
         ecoflow = config.ecoflow.is_some(),
+        api = config.api.is_some(),
         dyson = config.dyson.len(),
         mac = %config.ambient.mac_address,
         "starting ambient-st-bridge"
@@ -95,10 +97,27 @@ async fn run(
 ) -> Result<()> {
     let (tx, rx) = mpsc::channel::<Vec<Observation>>(BUS_CAPACITY);
 
+    // ----- Local API sink (only when `[api]` is configured) -----
+    // The store is written by the router and read by the HTTP task; the server
+    // failing (e.g. port taken) is logged, never fatal — API trouble must not
+    // take down the bridge.
+    let state = config.api.as_ref().map(|_| api::StateStore::new());
+    let api_server = match (&config.api, &state) {
+        (Some(api_cfg), Some(store)) => Some(tokio::spawn({
+            let (api_cfg, store, system) = (api_cfg.clone(), store.clone(), config.unit_system);
+            async move {
+                if let Err(e) = api::server::serve(api_cfg, store, system).await {
+                    error!(error = ?e, "api server exited");
+                }
+            }
+        })),
+        _ => None,
+    };
+
     // Router: the single owner of the sink(s) and the bus receiver. Every
     // observation batch from every source flows through here, and this is the
     // ONLY place `sink.publish` is called.
-    let router = tokio::spawn(router(rx, sink));
+    let router = tokio::spawn(router(rx, sink, state));
 
     // ----- Ambient source task (always present) -----
     let ambient = tokio::spawn(run_ambient(
@@ -151,15 +170,28 @@ async fn run(
     for h in dyson_handles {
         h.abort();
     }
+    if let Some(h) = api_server {
+        h.abort();
+    }
     router.abort();
 
     Ok(())
 }
 
 /// Router task: owns the sink(s) and the bus receiver. Drains the bus and
-/// publishes each batch. The only caller of `sink.publish`.
-async fn router(mut rx: mpsc::Receiver<Vec<Observation>>, sink: Option<SmartThingsSink>) {
+/// publishes each batch. The only caller of `sink.publish` — and, likewise,
+/// the only writer of the API state store.
+async fn router(
+    mut rx: mpsc::Receiver<Vec<Observation>>,
+    sink: Option<SmartThingsSink>,
+    state: Option<api::StateStore>,
+) {
     while let Some(batch) = rx.recv().await {
+        // Local store first: a slow SmartThings publish must not delay the
+        // freshness of `/api/latest` (recording is a sync map insert).
+        if let Some(state) = &state {
+            state.record(&batch);
+        }
         if let Some(sink) = &sink {
             sink.publish(&batch).await;
         }

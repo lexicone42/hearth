@@ -22,6 +22,7 @@ live to SmartThings.
 | Sink | How |
 |---|---|
 | **SmartThings** | Virtual Devices API (outbound `POST .../events`), OAuth-refreshed |
+| **Local HTTP API** | Latest-value snapshot served on the LAN (`GET /api/latest`, axum) — feeds local dashboards like a Wear OS tile |
 
 ## Architecture
 
@@ -67,6 +68,7 @@ gitignored — see `config.example.toml` for the shape.
 - [x] SmartThings sink: capability mapping + virtual-device push + OAuth refresh
 - [x] EcoFlow source (HMAC-signed IoT Open API) — *awaiting developer API keys*
 - [x] Event bus + **Dyson** local-MQTT push source (live on real hardware)
+- [x] Local HTTP API sink (`[api]`): latest-value store + LAN JSON endpoint
 - [ ] Realtime Ambient Socket.IO ingest
 - [ ] More sources / sinks; richer SmartThings capabilities
 
