@@ -62,6 +62,20 @@ Runs in the wild as an OpenRC service (see `packaging/`); a `systemd` unit looks
 similar. Secrets and runtime state (`config.toml`, `token_store.json`, …) are
 gitignored — see `config.example.toml` for the shape.
 
+## Secret scanning
+
+Secrets live only in the gitignored `config.toml`, never in source. A
+[gitleaks](https://github.com/gitleaks/gitleaks) pre-commit hook enforces that —
+enable it once per clone:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+It scans your staged changes and blocks any commit containing a secret (install
+`gitleaks` for it to run locally). CI runs gitleaks over the full history too, so
+a leak is caught server-side even if the local hook is skipped.
+
 ## Roadmap
 
 - [x] Config + REST poll loop; vendor-neutral `domain` model, unit-tested
