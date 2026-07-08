@@ -72,6 +72,20 @@ pub struct SmartThingsConfig {
     /// Virtual devices and the canonical entities each one carries.
     #[serde(default)]
     pub devices: Vec<DeviceBinding>,
+    /// Devices to READ BACK from SmartThings and surface as observations — e.g.
+    /// a Wi-Fi lock cloud-linked to your account. Makes SmartThings a source,
+    /// not just a sink. Empty = read nothing.
+    #[serde(default)]
+    pub read: Vec<ReadDevice>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ReadDevice {
+    /// SmartThings device id to poll (`GET /devices/{id}/status`).
+    pub device_id: String,
+    /// Canonical entity node this device's channels hang under, e.g.
+    /// `front_door` -> `smartthings.front_door.lock` / `.battery`.
+    pub node: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]

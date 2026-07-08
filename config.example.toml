@@ -80,3 +80,11 @@ interval_secs = 60
 #   "ambient_weather.outdoor.temperature",
 #   "ambient_weather.outdoor.humidity",
 # ]
+#
+# # Read devices BACK from SmartThings (this makes it a *source*): e.g. a Wi-Fi
+# # lock cloud-linked to your account. hearth polls each on the poll interval and
+# # surfaces its lock/battery state onto the bus (visible via the [api] sink /
+# # watch tile). No hub needed for Wi-Fi locks — just link the account in the app.
+# [[smartthings.read]]
+# device_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"   # the SmartThings device id
+# node = "front_door"                                  # -> smartthings.front_door.lock / .battery

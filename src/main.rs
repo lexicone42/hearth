@@ -17,6 +17,7 @@ use crate::config::Config;
 use crate::domain::Observation;
 use crate::ecoflow::client::EcoflowClient;
 use crate::smartthings::SmartThingsSink;
+use crate::smartthings::client::SmartThingsClient;
 
 /// Per-sample batch of observations carried on the internal event bus. Each
 /// source produces one `Vec<Observation>` per sample (preserving the existing
@@ -57,9 +58,23 @@ async fn main() -> Result<()> {
     );
 
     let client = AmbientClient::new(&config.ambient.application_key, &config.ambient.api_key)?;
-    let sink = match &config.smartthings {
-        Some(st) => Some(SmartThingsSink::new(st, config.unit_system)?),
+    // Build the SmartThings client once and share it between the sink and the
+    // read-back source, so they share a single OAuth token manager (one
+    // mutex-serialized refresh) instead of racing two.
+    let st_client = match &config.smartthings {
+        Some(st) => Some(SmartThingsClient::new(
+            st.base_url.clone(),
+            smartthings::sink::token_source(st)?,
+        )?),
         None => None,
+    };
+    let sink = match (&config.smartthings, &st_client) {
+        (Some(st), Some(client)) => Some(SmartThingsSink::new(
+            client.clone(),
+            st,
+            config.unit_system,
+        )?),
+        _ => None,
     };
 
     // EcoFlow source is entirely optional: with no `[ecoflow]` section it's
@@ -78,7 +93,7 @@ async fn main() -> Result<()> {
         None => None,
     };
 
-    run(client, sink, ecoflow, config).await
+    run(client, sink, ecoflow, st_client, config).await
 }
 
 /// Internal event-bus orchestration. Each source is its own task holding a
@@ -93,6 +108,7 @@ async fn run(
     client: AmbientClient,
     sink: Option<SmartThingsSink>,
     ecoflow: Option<(EcoflowClient, Vec<String>)>,
+    st_client: Option<SmartThingsClient>,
     config: Config,
 ) -> Result<()> {
     let (tx, rx) = mpsc::channel::<Vec<Observation>>(BUS_CAPACITY);
@@ -154,6 +170,21 @@ async fn run(
         }
     }
 
+    // ----- SmartThings read-back source (only when `[smartthings].read` set) -----
+    // Polls configured devices' status (e.g. a cloud-linked lock) onto the bus.
+    // Shares the sink's token manager via the cloned client.
+    let st_source = match (&config.smartthings, st_client) {
+        (Some(st), Some(client)) if !st.read.is_empty() => {
+            Some(tokio::spawn(smartthings::source::run(
+                client,
+                st.read.clone(),
+                config.poll.interval_secs,
+                tx.clone(),
+            )))
+        }
+        _ => None,
+    };
+
     // Drop our own sender clone so the router's `rx.recv()` can observe channel
     // closure if every source task ends (it normally runs until ctrl-c).
     drop(tx);
@@ -171,6 +202,9 @@ async fn run(
         h.abort();
     }
     if let Some(h) = api_server {
+        h.abort();
+    }
+    if let Some(h) = st_source {
         h.abort();
     }
     router.abort();
