@@ -25,6 +25,19 @@ interval_secs = 60
 # device_sns = ["R331ZEB4ZEAL0001"]
 # # base_url = "https://api-e.ecoflow.com"   # default (US/global host)
 
+# Optional: enable the Schlage source — a Schlage Wi-Fi lock's state (locked /
+# unlocked / jammed + battery %) polled from Schlage's cloud onto the bus
+# (visible via the [api] sink / watch tile). Omit this whole section to disable
+# it (no Schlage task is then spawned).
+#
+# NOTE: this uses Schlage's UNOFFICIAL, reverse-engineered cloud API (the same
+# one the Schlage Home app uses). There is no public/official API — it can break
+# whenever Schlage changes it. Auth is AWS Cognito SRP with your Schlage Home
+# account; credentials are held in memory only (never persisted).
+# [schlage]
+# username = "you@example.com"   # your Schlage Home account email
+# password = "your-schlage-home-password"
+
 # Optional: enable Dyson sources (local MQTT push). Each [[dyson]] block is ONE
 # device — repeat the block for multiple fans/purifiers. Omit them all to disable
 # Dyson (no MQTT tasks spawned). This is a PUSH source: no poll interval — it

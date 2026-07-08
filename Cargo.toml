@@ -25,3 +25,7 @@ hex = "0.4"
 base64 = "0.22"
 # Dyson local MQTT source (subscribe to status/current, prime via command topic).
 rumqttc = "0.24"
+# Schlage cloud source: AWS Cognito SRP parameter generation (USER_SRP_AUTH /
+# PASSWORD_VERIFIER). Generates SRP params only — we make the raw JSON-1.1
+# Cognito IDP POSTs with reqwest, avoiding the heavy aws-sdk-cognitoidentityprovider.
+aws-cognito-srp = "0.2"
