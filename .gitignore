@@ -2,6 +2,9 @@
 /config.toml
 /token_store.json
 /device_store.json
+# Persistent local data (e.g. the Whisker weight-history archive in
+# data/whisker/visits.jsonl) — holds personal pet/health data; never commit it.
+/data/
 /.tools
 *.log
 .claude/settings.local.json

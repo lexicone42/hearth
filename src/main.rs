@@ -8,6 +8,9 @@ mod schlage;
 mod smartthings;
 mod whisker;
 
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -43,8 +46,18 @@ async fn main() -> Result<()> {
         match cmd.as_str() {
             "auth" => return smartthings::auth::run_interactive(&config).await,
             "provision" => return smartthings::provision::run_provision(&config).await,
+            // Bank a previously-saved 30-day activity snapshot into the archive.
+            "whisker-history-import" => {
+                let Some(dir) = std::env::args().nth(2) else {
+                    eprintln!("usage: hearth whisker-history-import <snapshot-dir>");
+                    std::process::exit(2);
+                };
+                return run_whisker_history_import(&config, PathBuf::from(dir)).await;
+            }
             other => {
-                eprintln!("unknown command '{other}' (expected: auth, provision)");
+                eprintln!(
+                    "unknown command '{other}' (expected: auth, provision, whisker-history-import)"
+                );
                 std::process::exit(2);
             }
         }
@@ -111,13 +124,15 @@ async fn main() -> Result<()> {
     // Whisker source is optional: with no `[whisker]` section it's `None` and the
     // source task is never spawned. Building the client is offline (an HTTP
     // client + stored credentials); the Cognito SRP handshake happens at first
-    // poll. An explicit `serial` skips robot discovery.
+    // poll. An explicit `serial` skips robot discovery. Built as an `Arc` so the
+    // live-observation task and the weight-history task share ONE client (a
+    // single Cognito token manager) rather than racing two.
     let whisker = match &config.whisker {
-        Some(cfg) => Some(WhiskerClient::new(
+        Some(cfg) => Some(Arc::new(WhiskerClient::new(
             &cfg.username,
             &cfg.password,
             cfg.serial.clone(),
-        )?),
+        )?)),
         None => None,
     };
 
@@ -137,7 +152,7 @@ async fn run(
     sink: Option<SmartThingsSink>,
     ecoflow: Option<(EcoflowClient, Vec<String>)>,
     schlage: Option<SchlageClient>,
-    whisker: Option<WhiskerClient>,
+    whisker: Option<Arc<WhiskerClient>>,
     st_client: Option<SmartThingsClient>,
     config: Config,
 ) -> Result<()> {
@@ -195,15 +210,29 @@ async fn run(
         ))
     });
 
-    // ----- Whisker source task (only when `[whisker]` is configured) -----
-    let whisker = whisker.map(|client| {
-        tokio::spawn(run_whisker(
-            client,
-            config.unit_system,
-            config.poll.interval_secs,
-            tx.clone(),
-        ))
-    });
+    // ----- Whisker source tasks (only when `[whisker]` is configured) -----
+    // Two tasks share one `Arc<WhiskerClient>` (one Cognito token manager): the
+    // live-observation poll (litter/waste/status + per-cat weight onto the bus)
+    // and the forward weight-history archive (appends every PET_VISIT to
+    // `visits.jsonl`, which the bus never carries).
+    let (whisker, whisker_history) = match whisker {
+        Some(client) => {
+            let live = tokio::spawn(run_whisker(
+                client.clone(),
+                config.unit_system,
+                config.poll.interval_secs,
+                tx.clone(),
+            ));
+            let history_dir = whisker_history_dir(&config);
+            let history = tokio::spawn(run_whisker_history(
+                client,
+                config.poll.interval_secs,
+                history_dir,
+            ));
+            (Some(live), Some(history))
+        }
+        None => (None, None),
+    };
 
     // ----- Dyson source tasks (one per `[[dyson]]` device) -----
     // Push sources: no tick — each produces on its own incoming MQTT publishes,
@@ -252,6 +281,9 @@ async fn run(
         h.abort();
     }
     if let Some(h) = whisker {
+        h.abort();
+    }
+    if let Some(h) = whisker_history {
         h.abort();
     }
     for h in dyson_handles {
@@ -484,7 +516,7 @@ async fn run_schlage(
 /// re-hammer Cognito (which for an auth endpoint risks account lockout). Errors
 /// are logged, never fatal — Whisker's unofficial cloud can hiccup or change.
 async fn run_whisker(
-    client: WhiskerClient,
+    client: Arc<WhiskerClient>,
     unit_system: domain::UnitSystem,
     interval_secs: u64,
     tx: mpsc::Sender<Vec<Observation>>,
@@ -556,6 +588,202 @@ async fn run_whisker(
             tokio::time::sleep(delay).await;
         }
     }
+}
+
+/// Resolve the Whisker weight-history archive directory from config, defaulting
+/// to `data/whisker` when `[whisker].history_dir` is unset.
+fn whisker_history_dir(config: &Config) -> PathBuf {
+    config
+        .whisker
+        .as_ref()
+        .and_then(|w| w.history_dir.clone())
+        .unwrap_or_else(|| PathBuf::from("data/whisker"))
+}
+
+/// Resolve a `petId -> cat name` map from a live pet lookup (best-effort). A
+/// failure (auth/transport) is logged via `log_whisker_error` and yields an
+/// empty map — visits then archive with `cat = None` rather than not at all.
+async fn whisker_pet_names(client: &WhiskerClient) -> HashMap<String, String> {
+    match client.user_id().await {
+        Ok(uid) => match client.list_pets(&uid).await {
+            Ok(pets) => pets
+                .into_iter()
+                .filter(|p| !p.pet_id.is_empty() && !p.name.is_empty())
+                .map(|p| (p.pet_id, p.name))
+                .collect(),
+            Err(e) => {
+                log_whisker_error("history/pets", &e);
+                HashMap::new()
+            }
+        },
+        Err(e) => {
+            log_whisker_error("history/pets", &e);
+            HashMap::new()
+        }
+    }
+}
+
+/// Whisker weight-history archive task (Litter-Robot 5): each interval it scans
+/// every configured box's activity feed and appends every new PET_VISIT (a
+/// per-cat weight reading) to the local append-only archive, so hearth keeps a
+/// forever record even though Whisker's cloud only retains ~30 days.
+///
+/// Independent of `run_whisker` (the live-observation task) but shares its
+/// [`WhiskerClient`] — one Cognito token manager. Cat names are resolved from a
+/// `petId -> name` map refreshed each tick (cheap; names can change). A per-box
+/// fetch error is logged and skipped; only when EVERY box fails on a tick do we
+/// count a consecutive failure and apply `backoff_delay`, so a persistent auth
+/// failure can't re-hammer Cognito (which risks account lockout). Never fatal —
+/// a broken archive tick must not take down the hub. Aborted on shutdown like
+/// every other source task.
+async fn run_whisker_history(client: Arc<WhiskerClient>, interval_secs: u64, history_dir: PathBuf) {
+    let base = Duration::from_secs(interval_secs);
+    let max_backoff = Duration::from_secs(30 * 60);
+    let mut failures: u32 = 0;
+
+    // Open the archive once. If it can't be opened (e.g. the data dir isn't
+    // writable), log and disable just this task — it must never take down the hub.
+    let mut store = match whisker::history::VisitStore::open(&history_dir) {
+        Ok(store) => store,
+        Err(e) => {
+            error!(error = ?e, dir = %history_dir.display(), "Whisker history: cannot open archive — task disabled");
+            return;
+        }
+    };
+    info!(total = store.len(), dir = %history_dir.display(), "Whisker history: archive opened");
+
+    loop {
+        // Refresh the petId -> cat-name map (best-effort; unresolved cats still
+        // archive their weights).
+        let pet_names = whisker_pet_names(&client).await;
+
+        // Enumerate the boxes to scan (respects the configured `serial` filter).
+        // Failing here is a shared auth/transport problem: back off and retry.
+        let serials: Vec<String> = match client.list_robots().await {
+            Ok(robots) => robots.into_iter().map(|r| r.serial).collect(),
+            Err(e) => {
+                failures += 1;
+                let delay = backoff_delay(base, max_backoff, failures);
+                log_whisker_error("history/robots", &e);
+                debug!(
+                    retry_in_s = delay.as_secs(),
+                    "Whisker history: robot discovery failed; backing off"
+                );
+                tokio::time::sleep(delay).await;
+                continue;
+            }
+        };
+
+        let mut any_ok = false;
+        for serial in &serials {
+            match client.list_activities(serial, 1000).await {
+                Ok(activities) => {
+                    any_ok = true;
+                    // Map every PET_VISIT, resolving the cat by the visit's pet id.
+                    let records = activities.iter().filter_map(|a| {
+                        let cat = a
+                            .pet_ids
+                            .first()
+                            .and_then(|pid| pet_names.get(pid))
+                            .map(String::as_str);
+                        whisker::history::visit_from_activity(a, cat)
+                    });
+                    match store.append_new(records) {
+                        Ok(appended) => info!(
+                            appended,
+                            total = store.len(),
+                            serial = %serial,
+                            "archived Whisker visits"
+                        ),
+                        Err(e) => {
+                            error!(error = ?e, serial = %serial, "Whisker history: failed to append visits")
+                        }
+                    }
+                }
+                Err(e) => log_whisker_error("history/activities", &e),
+            }
+        }
+
+        // Reset cadence if at least one box was scanned (or there are none to
+        // scan); back off only on a total failure — every box errored.
+        let delay = if any_ok || serials.is_empty() {
+            failures = 0;
+            base
+        } else {
+            failures += 1;
+            backoff_delay(base, max_backoff, failures)
+        };
+        tokio::time::sleep(delay).await;
+    }
+}
+
+/// `whisker-history-import <snapshot-dir>` subcommand: bank a previously-saved
+/// 30-day activity snapshot into the archive. Every `*.json` file in
+/// `<snapshot-dir>` whose content is a JSON array of activity events (the saved
+/// `activities_*.json` snapshots) is parsed leniently, its PET_VISITs mapped to
+/// records, and appended. Idempotent — importing the same snapshot twice adds
+/// nothing. Cat names are resolved via a live pet lookup; if auth fails the
+/// import proceeds with `cat = None` (the weights are what matter). The
+/// `<snapshot-dir>` may live outside the repo.
+async fn run_whisker_history_import(config: &Config, snapshot_dir: PathBuf) -> Result<()> {
+    let Some(cfg) = &config.whisker else {
+        anyhow::bail!("[whisker] is not configured — nothing to import into");
+    };
+    let history_dir = whisker_history_dir(config);
+
+    // Best-effort cat-name resolution: build the client and try a live lookup,
+    // but never let an auth failure abort the import.
+    let client = WhiskerClient::new(&cfg.username, &cfg.password, cfg.serial.clone())?;
+    let pet_names = whisker_pet_names(&client).await;
+
+    let mut store = whisker::history::VisitStore::open(&history_dir)
+        .with_context(|| format!("opening visit archive under {}", history_dir.display()))?;
+
+    // Collect and sort the `*.json` snapshot files for a deterministic order.
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&snapshot_dir)
+        .with_context(|| format!("reading snapshot dir {}", snapshot_dir.display()))?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("json"))
+        .collect();
+    files.sort();
+
+    let mut total_new = 0usize;
+    for path in &files {
+        let body = match std::fs::read_to_string(path) {
+            Ok(b) => b,
+            Err(e) => {
+                warn!(file = %path.display(), error = %e, "skipping unreadable snapshot file");
+                continue;
+            }
+        };
+        // Lenient: a `*.json` that isn't an activity array is skipped, not fatal.
+        let activities = match whisker::model::parse_activities(&body) {
+            Ok(a) => a,
+            Err(e) => {
+                warn!(file = %path.display(), error = %e, "skipping snapshot file (not an activity array)");
+                continue;
+            }
+        };
+        let records = activities.iter().filter_map(|a| {
+            let cat = a
+                .pet_ids
+                .first()
+                .and_then(|pid| pet_names.get(pid))
+                .map(String::as_str);
+            whisker::history::visit_from_activity(a, cat)
+        });
+        let added = store
+            .append_new(records)
+            .with_context(|| format!("appending visits from {}", path.display()))?;
+        total_new += added;
+        info!(file = %path.display(), added, "imported snapshot file");
+    }
+
+    println!(
+        "imported {total_new} new visits (store now {})",
+        store.len()
+    );
+    Ok(())
 }
 
 /// Log a Whisker source error at the right level: transient (network, 429/5xx)

@@ -5,9 +5,12 @@
 //! Mirrors the `schlage` module's shape (both are Cognito-auth'd cloud sources):
 //!   - [`auth`]      performs the AWS Cognito SRP handshake (and cheap refresh),
 //!   - [`client`]    fetches the LR5 endpoints with the id token as a `Bearer`,
-//!   - [`model`]     deserializes the robots (REST) / pets (GraphQL) responses,
+//!   - [`model`]     deserializes the robots (REST) / pets (GraphQL) / activity
+//!     (REST) responses,
 //!   - [`canonical`] maps a box to litter-level / waste-drawer / status (+ last
-//!     visitor weight) and a cat to its measured weight.
+//!     visitor weight) and a cat to its measured weight,
+//!   - [`history`]   the append-only weight archive: persists every PET_VISIT
+//!     (per-cat weight) forever, since the cloud retains only ~30 days.
 //!
 //! LR5 splits the data across TWO live-verified endpoints, both authed with the
 //! id token as `Authorization: Bearer <IdToken>` (the `Bearer` prefix is
@@ -30,6 +33,7 @@ pub mod auth;
 pub mod canonical;
 pub mod client;
 pub mod error;
+pub mod history;
 pub mod model;
 
 pub use error::WhiskerError;
