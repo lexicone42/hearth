@@ -6,6 +6,7 @@ mod dyson;
 mod ecoflow;
 mod schlage;
 mod smartthings;
+mod whisker;
 
 use std::time::Duration;
 
@@ -20,6 +21,7 @@ use crate::ecoflow::client::EcoflowClient;
 use crate::schlage::client::SchlageClient;
 use crate::smartthings::SmartThingsSink;
 use crate::smartthings::client::SmartThingsClient;
+use crate::whisker::client::WhiskerClient;
 
 /// Per-sample batch of observations carried on the internal event bus. Each
 /// source produces one `Vec<Observation>` per sample (preserving the existing
@@ -54,6 +56,7 @@ async fn main() -> Result<()> {
         smartthings = config.smartthings.is_some(),
         ecoflow = config.ecoflow.is_some(),
         schlage = config.schlage.is_some(),
+        whisker = config.whisker.is_some(),
         api = config.api.is_some(),
         dyson = config.dyson.len(),
         mac = %config.ambient.mac_address,
@@ -105,7 +108,20 @@ async fn main() -> Result<()> {
         None => None,
     };
 
-    run(client, sink, ecoflow, schlage, st_client, config).await
+    // Whisker source is optional: with no `[whisker]` section it's `None` and the
+    // source task is never spawned. Building the client is offline (an HTTP
+    // client + stored credentials); the Cognito SRP handshake happens at first
+    // poll. An explicit `serial` skips robot discovery.
+    let whisker = match &config.whisker {
+        Some(cfg) => Some(WhiskerClient::new(
+            &cfg.username,
+            &cfg.password,
+            cfg.serial.clone(),
+        )?),
+        None => None,
+    };
+
+    run(client, sink, ecoflow, schlage, whisker, st_client, config).await
 }
 
 /// Internal event-bus orchestration. Each source is its own task holding a
@@ -121,6 +137,7 @@ async fn run(
     sink: Option<SmartThingsSink>,
     ecoflow: Option<(EcoflowClient, Vec<String>)>,
     schlage: Option<SchlageClient>,
+    whisker: Option<WhiskerClient>,
     st_client: Option<SmartThingsClient>,
     config: Config,
 ) -> Result<()> {
@@ -178,6 +195,16 @@ async fn run(
         ))
     });
 
+    // ----- Whisker source task (only when `[whisker]` is configured) -----
+    let whisker = whisker.map(|client| {
+        tokio::spawn(run_whisker(
+            client,
+            config.unit_system,
+            config.poll.interval_secs,
+            tx.clone(),
+        ))
+    });
+
     // ----- Dyson source tasks (one per `[[dyson]]` device) -----
     // Push sources: no tick — each produces on its own incoming MQTT publishes,
     // all feeding the same bus (entity ids namespace by serial, so they never
@@ -222,6 +249,9 @@ async fn run(
         h.abort();
     }
     if let Some(h) = schlage {
+        h.abort();
+    }
+    if let Some(h) = whisker {
         h.abort();
     }
     for h in dyson_handles {
@@ -438,6 +468,104 @@ async fn run_schlage(
                 tokio::time::sleep(delay).await;
             }
         }
+    }
+}
+
+/// Whisker source task (Litter-Robot 5): ticks on the poll interval and pulls
+/// BOTH live data sources — the robots REST feed (box litter/waste/status) and
+/// the pet-profile GraphQL (per-cat weight, the hub owner's #1 goal) — mapping
+/// each to canonical observations and sending one merged batch onto the bus.
+/// The Cognito id token is authenticated / refreshed inside the client.
+///
+/// The two sources are independent: a failure in one is logged and the other
+/// still publishes, so a pet-profile hiccup never hides the box's drawer-full
+/// alert (and vice-versa). Only when BOTH fail on a tick do we count a
+/// consecutive failure and apply `backoff_delay`, so a wrong password can't
+/// re-hammer Cognito (which for an auth endpoint risks account lockout). Errors
+/// are logged, never fatal — Whisker's unofficial cloud can hiccup or change.
+async fn run_whisker(
+    client: WhiskerClient,
+    unit_system: domain::UnitSystem,
+    interval_secs: u64,
+    tx: mpsc::Sender<Vec<Observation>>,
+) {
+    let base = Duration::from_secs(interval_secs);
+    let max_backoff = Duration::from_secs(30 * 60);
+    let mut failures: u32 = 0;
+    loop {
+        let mut observations: Vec<Observation> = Vec::new();
+        let mut progressed = false;
+
+        // ----- Source A: robots (box litter / waste / status) -----
+        match client.list_robots().await {
+            Ok(robots) => {
+                progressed = true;
+                for robot in &robots {
+                    // An offline box's last-known state may be stale — flag it
+                    // (canonical then reports the status as `Offline`).
+                    if robot.state.is_online == Some(false) {
+                        warn!(serial = %robot.serial, name = %robot.name, "Whisker robot offline — reported state may be stale");
+                    }
+                    observations.extend(whisker::canonical::robot_observations(robot));
+                }
+            }
+            Err(e) => log_whisker_error("robots", &e),
+        }
+
+        // ----- Source B: pets (per-cat weight) -----
+        // Needs the userId (the id token's `mid` claim). A failure to get it is
+        // an auth/transport problem shared with source A, so it's logged too.
+        match client.user_id().await {
+            Ok(user_id) => match client.list_pets(&user_id).await {
+                Ok(pets) => {
+                    progressed = true;
+                    for pet in &pets {
+                        observations.extend(whisker::canonical::pet_observations(pet));
+                    }
+                }
+                Err(e) => log_whisker_error("pets", &e),
+            },
+            Err(e) => log_whisker_error("pets", &e),
+        }
+
+        if progressed {
+            failures = 0;
+            info!(count = observations.len(), "mapped Whisker observations");
+            for obs in &observations {
+                debug!(
+                    entity = %obs.entity,
+                    class = ?obs.class,
+                    value = %obs.value.in_system(unit_system),
+                    "observation",
+                );
+            }
+            if tx.send(observations).await.is_err() {
+                // Router gone (shutdown).
+                return;
+            }
+            tokio::time::sleep(base).await;
+        } else {
+            // Both sources failed this tick (errors already logged); back off
+            // before retrying so a persistent failure can't hammer upstream.
+            failures += 1;
+            let delay = backoff_delay(base, max_backoff, failures);
+            debug!(
+                retry_in_s = delay.as_secs(),
+                "Whisker: both sources failed; backing off"
+            );
+            tokio::time::sleep(delay).await;
+        }
+    }
+}
+
+/// Log a Whisker source error at the right level: transient (network, 429/5xx)
+/// as `warn!` (likely clears), persistent (bad creds, decode drift) as `error!`
+/// (needs human action). `source` names which feed failed (`robots` / `pets`).
+fn log_whisker_error(source: &str, e: &whisker::WhiskerError) {
+    if e.is_transient() {
+        warn!(source, kind = e.kind(), error = %e, "{}", e.hint());
+    } else {
+        error!(source, kind = e.kind(), error = %e, "{}", e.hint());
     }
 }
 

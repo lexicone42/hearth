@@ -17,6 +17,8 @@ pub enum Dimension {
     Ratio,
     Irradiance,
     MassConcentration,
+    /// Mass / weight: pounds / kilograms (base unit: kilograms).
+    Mass,
     /// Instantaneous power: watts.
     Power,
     /// Accumulated energy: watt-hours.
@@ -46,6 +48,8 @@ pub enum Unit {
     MicrogramsPerCubicMeter,
     Watts,
     WattHours,
+    Pounds,
+    Kilograms,
     Index,
 }
 
@@ -64,6 +68,7 @@ impl Unit {
             Unit::MicrogramsPerCubicMeter => D::MassConcentration,
             Unit::Watts => D::Power,
             Unit::WattHours => D::Energy,
+            Unit::Pounds | Unit::Kilograms => D::Mass,
             Unit::Index => D::Index,
         }
     }
@@ -78,6 +83,8 @@ impl Unit {
             Unit::KilometersPerHour => v / 3.6,
             Unit::Inches => v * 25.4,
             Unit::Miles => v * 1.609_344,
+            // Mass base is kilograms; 1 lb = 0.453592 kg.
+            Unit::Pounds => v * 0.453_592,
             // Already a base unit (or dimensionless).
             Unit::Celsius
             | Unit::Hectopascal
@@ -89,6 +96,7 @@ impl Unit {
             | Unit::MicrogramsPerCubicMeter
             | Unit::Watts
             | Unit::WattHours
+            | Unit::Kilograms
             | Unit::Index => v,
         }
     }
@@ -104,6 +112,7 @@ impl Unit {
             Unit::KilometersPerHour => v * 3.6,
             Unit::Inches => v / 25.4,
             Unit::Miles => v / 1.609_344,
+            Unit::Pounds => v / 0.453_592,
             Unit::Celsius
             | Unit::Hectopascal
             | Unit::Millimeters
@@ -114,6 +123,7 @@ impl Unit {
             | Unit::MicrogramsPerCubicMeter
             | Unit::Watts
             | Unit::WattHours
+            | Unit::Kilograms
             | Unit::Index => v,
         }
     }
@@ -143,6 +153,8 @@ impl fmt::Display for Unit {
             Unit::MicrogramsPerCubicMeter => "µg/m³",
             Unit::Watts => "W",
             Unit::WattHours => "Wh",
+            Unit::Pounds => "lb",
+            Unit::Kilograms => "kg",
             Unit::Index => "",
         })
     }
@@ -174,6 +186,8 @@ impl UnitSystem {
             (Metric, D::Precipitation) => Unit::Millimeters,
             (Imperial, D::Distance) => Unit::Miles,
             (Metric, D::Distance) => Unit::Kilometers,
+            (Imperial, D::Mass) => Unit::Pounds,
+            (Metric, D::Mass) => Unit::Kilograms,
             _ => return None,
         })
     }
@@ -271,6 +285,33 @@ mod tests {
             Unit::Miles.convert(1.0, Unit::Kilometers).unwrap(),
             1.60934
         ));
+        // Mass: 1 lb = 0.453592 kg, and back (1 kg ≈ 2.20462 lb).
+        assert!(approx(
+            Unit::Pounds.convert(1.0, Unit::Kilograms).unwrap(),
+            0.453_592
+        ));
+        assert!(approx(
+            Unit::Kilograms.convert(1.0, Unit::Pounds).unwrap(),
+            2.204_62
+        ));
+        assert!(approx(
+            Unit::Pounds.convert(10.0, Unit::Kilograms).unwrap(),
+            4.535_92
+        ));
+    }
+
+    #[test]
+    fn weight_converts_with_the_unit_system() {
+        // A Weight (Mass) quantity re-expresses like temperature does: pounds in
+        // Imperial, kilograms in Metric.
+        let lbs = Value::quantity(8.6, Unit::Pounds);
+        let Value::Quantity { value, unit } = lbs.in_system(UnitSystem::Metric) else {
+            panic!("expected a quantity");
+        };
+        assert_eq!(unit, Unit::Kilograms);
+        assert!(approx(value, 3.900_9)); // 8.6 lb * 0.453592
+        // Imperial leaves pounds untouched.
+        assert_eq!(lbs.in_system(UnitSystem::Imperial), lbs);
     }
 
     #[test]

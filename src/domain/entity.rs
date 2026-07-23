@@ -73,5 +73,18 @@ pub enum DeviceClass {
     /// from a cloud sink (SmartThings). No standard SmartThings *write* mapping —
     /// it flows to the local API sink / watch, not back to SmartThings.
     Lock,
+    /// A measured mass/weight (pounds/kilograms) — e.g. a Litter-Robot's last
+    /// recorded pet weight. No standard SmartThings *write* mapping; flows to the
+    /// local API sink / watch.
+    Weight,
+    /// Remaining litter level as a percentage (0–100). A low value is the
+    /// "litter is low, refill it" signal (Whisker LR4).
+    LitterLevel,
+    /// Waste-drawer fullness as a percentage (0–100). A high value is the "empty
+    /// the drawer" signal (Whisker LR4).
+    WasteDrawer,
+    /// A device's unit status as free text (e.g. a Litter-Robot's `Ready` /
+    /// `Drawer Full` / `Offline`). No standard SmartThings mapping — local only.
+    Status,
     Timestamp,
 }
