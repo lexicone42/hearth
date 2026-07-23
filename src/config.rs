@@ -27,6 +27,10 @@ pub struct Config {
     /// whole `[schlage]` section to disable it; no Schlage task is then spawned.
     #[serde(default)]
     pub schlage: Option<SchlageConfig>,
+    /// Whisker source (a Litter-Robot 5, via Whisker's unofficial cloud). Omit
+    /// the whole `[whisker]` section to disable it; no Whisker task is spawned.
+    #[serde(default)]
+    pub whisker: Option<WhiskerConfig>,
     /// Dyson sources (local MQTT push). Each `[[dyson]]` block is one device;
     /// omit them all to disable Dyson (no MQTT tasks spawned).
     #[serde(default)]
@@ -172,6 +176,20 @@ pub struct SchlageConfig {
     /// Schlage Home account password. Used for the AWS Cognito SRP handshake;
     /// held in memory only (never persisted).
     pub password: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WhiskerConfig {
+    /// Whisker (Litter-Robot) account username (the email you sign in with).
+    pub username: String,
+    /// Whisker account password. Used for the AWS Cognito SRP handshake; held in
+    /// memory only (never persisted).
+    pub password: String,
+    /// Optional Litter-Robot 5 serial. When set, only the box with this serial
+    /// is surfaced (the account's robots are filtered to it); otherwise every
+    /// Litter-Robot on the account is surfaced.
+    #[serde(default)]
+    pub serial: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

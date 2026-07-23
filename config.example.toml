@@ -38,6 +38,23 @@ interval_secs = 60
 # username = "you@example.com"   # your Schlage Home account email
 # password = "your-schlage-home-password"
 
+# Optional: enable the Whisker source — a Litter-Robot 5 (LR5). Surfaces each
+# cat's measured weight (the pet-profile feed) plus the two "time to change it"
+# signals per box — a full waste drawer and low litter. Surfaced via the [api]
+# sink / watch tile. Omit this whole section to disable it (no Whisker task is
+# then spawned).
+#
+# NOTE: this uses Whisker's UNOFFICIAL, reverse-engineered cloud API (the same
+# one the Litter-Robot app uses). There is no public/official API — it can break
+# whenever Whisker changes it. Auth is AWS Cognito SRP with your Whisker account;
+# credentials are held in memory only (never persisted).
+# [whisker]
+# username = "you@example.com"   # your Whisker (Litter-Robot) account email
+# password = "your-whisker-password"
+# # Optional: surface only this LR5 serial (filters the account's robots).
+# # Leave unset to surface every Litter-Robot on your account.
+# # serial = "LR5-0123456789"
+
 # Optional: enable Dyson sources (local MQTT push). Each [[dyson]] block is ONE
 # device — repeat the block for multiple fans/purifiers. Omit them all to disable
 # Dyson (no MQTT tasks spawned). This is a PUSH source: no poll interval — it
