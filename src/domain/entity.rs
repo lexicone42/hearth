@@ -86,5 +86,10 @@ pub enum DeviceClass {
     /// A device's unit status as free text (e.g. a Litter-Robot's `Ready` /
     /// `Drawer Full` / `Offline`). No standard SmartThings mapping — local only.
     Status,
+    /// A binary "needs attention" signal ([`crate::domain::Value::Flag`]): `true`
+    /// = something needs changing. Maps to SmartThings `contactSensor` (`open` =
+    /// attention) so an in-app Routine can push a notification. First used for a
+    /// Litter-Robot's drawer-full / litter-low "time to change it" alert.
+    Alert,
     Timestamp,
 }
