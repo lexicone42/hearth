@@ -190,6 +190,10 @@ pub struct WhiskerConfig {
     /// Litter-Robot on the account is surfaced.
     #[serde(default)]
     pub serial: Option<String>,
+    /// Directory for the persistent weight-history archive (`visits.jsonl`).
+    /// Defaults to `data/whisker`.
+    #[serde(default)]
+    pub history_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

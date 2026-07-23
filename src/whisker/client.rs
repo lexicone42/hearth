@@ -5,16 +5,24 @@ use tracing::debug;
 
 use crate::whisker::WhiskerError;
 use crate::whisker::auth::{self, CognitoAuth};
-use crate::whisker::model::{self, Pet, Robot};
+use crate::whisker::model::{self, Activity, Pet, Robot};
 
-// TODO(phase 2): activity feed for weight-trend history + native low-litter /
-// drawer-full alert events — `GET https://ub.prod.iothings.site/robots/{serial}/activities`
-// returns PET_VISIT (petId/petWeight/wasteType) plus DRAWER_FULL / LITTER_LOW /
-// LITTER_CRITICALLY_LOW events. Not built yet; wire it as a third source later.
+// The activity feed (`GET {ACTIVITIES_BASE}/{serial}/activities`) carries
+// PET_VISIT events (petId / petWeight / wasteType) — now consumed by the
+// weight-history archive (see [`list_activities`] + [`crate::whisker::history`]),
+// which persists every visit forever even though the cloud retains only ~30 days.
+// TODO: the same feed also carries DRAWER_FULL / LITTER_LOW /
+// LITTER_CRITICALLY_LOW events; those are still unwired, for a future native
+// low-litter / drawer-full notifier.
 
 /// Litter-Robot 5 robots endpoint (live-verified). Returns a JSON array of the
 /// account's robots; requires BOTH the id-token bearer AND the `x-api-key`.
 const ROBOTS_ENDPOINT: &str = "https://ub.prod.iothings.site/robots";
+
+/// Activity-feed base (live-verified). `GET {ACTIVITIES_BASE}/{serial}/activities`
+/// returns a JSON array of a box's events, most-recent first; requires the SAME
+/// id-token bearer AND `x-api-key` as the robots endpoint.
+const ACTIVITIES_BASE: &str = "https://ub.prod.iothings.site/robots";
 
 /// Whisker pet-profile GraphQL endpoint (live-verified). Per-cat weights; needs
 /// only the id-token bearer.
@@ -141,6 +149,31 @@ impl WhiskerClient {
             .map_err(WhiskerError::transport)?;
         let text = read_body(resp).await?;
         model::parse_pets(&text)
+    }
+
+    /// A box's activity feed (`GET /robots/{serial}/activities?limit={limit}`,
+    /// Bearer + `x-api-key`). Returns the events most-recent first (an array; an
+    /// offset past the ~30-day retained window returns `[]`). The weight-history
+    /// archive consumes the PET_VISIT events; other event types are returned too
+    /// and ignored by the caller.
+    pub async fn list_activities(
+        &self,
+        serial: &str,
+        limit: u32,
+    ) -> Result<Vec<Activity>, WhiskerError> {
+        let token = self.auth.token().await?;
+        debug!(serial, limit, "Whisker: fetching activities");
+        let url = format!("{ACTIVITIES_BASE}/{serial}/activities?limit={limit}");
+        let resp = self
+            .http
+            .get(&url)
+            .bearer_auth(&token)
+            .header("x-api-key", &self.api_key)
+            .send()
+            .await
+            .map_err(WhiskerError::transport)?;
+        let text = read_body(resp).await?;
+        model::parse_activities(&text)
     }
 }
 

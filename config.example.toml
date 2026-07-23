@@ -54,6 +54,12 @@ interval_secs = 60
 # # Optional: surface only this LR5 serial (filters the account's robots).
 # # Leave unset to surface every Litter-Robot on your account.
 # # serial = "LR5-0123456789"
+# # Optional: directory for the forever weight-history archive (visits.jsonl).
+# # hearth appends every PET_VISIT (per-cat weight + waste) here, so you keep a
+# # permanent record even though Whisker's cloud only retains ~30 days. Holds
+# # personal pet data (kept out of git). Defaults to `data/whisker`. Seed it
+# # from a saved snapshot with:  hearth whisker-history-import <snapshot-dir>
+# # history_dir = "data/whisker"
 
 # Optional: enable Dyson sources (local MQTT push). Each [[dyson]] block is ONE
 # device — repeat the block for multiple fans/purifiers. Omit them all to disable

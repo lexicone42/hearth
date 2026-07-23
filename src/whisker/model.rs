@@ -144,6 +144,73 @@ pub fn parse_pets(body: &str) -> Result<Vec<Pet>, WhiskerError> {
 }
 
 // ---------------------------------------------------------------------------
+// Source C — Activities (REST array) — the weight-history feed
+// ---------------------------------------------------------------------------
+
+/// One event from a box's activity feed
+/// (`GET /robots/{serial}/activities`, a JSON array, most-recent first).
+///
+/// The feed carries many event types — CYCLE_COMPLETED, DRAWER_FULL, LITTER_LOW,
+/// LITTER_CRITICALLY_LOW, POSITION_FAULT, and the one this source archives,
+/// **PET_VISIT** (a per-cat weight reading). Only PET_VISIT is consumed today
+/// (see [`crate::whisker::history`]); every other type still deserializes fine
+/// and is simply ignored.
+///
+/// Field tolerance is total: every field is `Option`/defaulted and unknown
+/// fields are ignored, so a firmware/schema tweak degrades gracefully rather than
+/// failing the whole scan.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct Activity {
+    /// Message id (delivery envelope id). Retained for completeness.
+    #[serde(rename = "messageId", default)]
+    #[allow(dead_code)]
+    pub message_id: Option<String>,
+    /// Stable event id — the archive's dedup key. Present on real events.
+    #[serde(rename = "eventId", default)]
+    pub event_id: Option<String>,
+    /// The box's serial number.
+    #[serde(default)]
+    pub serial: Option<String>,
+    /// The box's user-given name, e.g. "piano room".
+    #[serde(rename = "robotName", default)]
+    pub robot_name: Option<String>,
+    /// Event type, e.g. "PET_VISIT" | "DRAWER_FULL" | "LITTER_LOW". Only
+    /// PET_VISIT is archived.
+    #[serde(rename = "type", default)]
+    pub r#type: Option<String>,
+    /// ISO-8601 event timestamp, e.g. "2026-07-23T19:35:18.182000Z".
+    #[serde(default)]
+    pub timestamp: Option<String>,
+    /// Visit duration in seconds (PET_VISIT).
+    #[serde(default)]
+    pub duration: Option<i64>,
+    /// Waste type on a PET_VISIT, e.g. "Urine" / "Feces".
+    #[serde(rename = "wasteType", default)]
+    pub waste_type: Option<String>,
+    /// The pet id(s) the visit was attributed to (usually one).
+    #[serde(rename = "petIds", default)]
+    pub pet_ids: Vec<String>,
+    /// The measured weight, in **pounds × 100** (e.g. `943.0` = 9.43 lb).
+    #[serde(rename = "petWeight", default)]
+    pub pet_weight: Option<f64>,
+    /// Waste weight (grams, as the feed reports it).
+    #[serde(rename = "wasteWeight", default)]
+    pub waste_weight: Option<f64>,
+    /// Whether the visit was later reassigned to a different pet.
+    #[serde(rename = "isReassigned", default)]
+    #[allow(dead_code)]
+    pub is_reassigned: Option<bool>,
+}
+
+/// Parse a `GET /robots/{serial}/activities` response body (a JSON array) into
+/// activity events. A shape mismatch (e.g. an error object instead of an array,
+/// or a field flipping type) becomes [`WhiskerError::Decode`]. An empty array
+/// (offset past the retained window) parses to an empty `Vec`.
+pub fn parse_activities(body: &str) -> Result<Vec<Activity>, WhiskerError> {
+    decode(body, "activities")
+}
+
+// ---------------------------------------------------------------------------
 // GraphQL envelope + shared helpers
 // ---------------------------------------------------------------------------
 
@@ -297,5 +364,46 @@ mod tests {
         let err = parse_pets(body).unwrap_err();
         assert_eq!(err.kind(), "decode");
         assert!(format!("{err}").contains("weight"));
+    }
+
+    #[test]
+    fn parses_a_mixed_activity_array_tolerating_unknown_fields() {
+        // A PET_VISIT (with fields the archive ignores, e.g. subtype/visitTime)
+        // alongside a non-PET_VISIT event. Both must decode.
+        let body = r#"[
+            {"messageId":"MSG-TEST-1","eventId":"EV-TEST-1","serial":"LR5-TEST-000000",
+             "robotName":"test room","type":"PET_VISIT","timestamp":"2026-01-01T00:00:00Z",
+             "subtype":null,"duration":65,"wasteType":"Urine","petIds":["PET-TEST-1"],
+             "petWeight":943.0,"wasteWeight":48.0,"visitTime":"2026-01-01T00:00:00Z",
+             "isReassigned":false,"reassignedAt":null,"isWasteWeightValid":true},
+            {"eventId":"EV-TEST-2","serial":"LR5-TEST-000000","type":"DRAWER_FULL",
+             "timestamp":"2026-01-01T01:00:00Z"}
+        ]"#;
+        let acts = parse_activities(body).unwrap();
+        assert_eq!(acts.len(), 2);
+        assert_eq!(acts[0].r#type.as_deref(), Some("PET_VISIT"));
+        assert_eq!(acts[0].event_id.as_deref(), Some("EV-TEST-1"));
+        assert_eq!(acts[0].pet_ids, vec!["PET-TEST-1".to_string()]);
+        assert_eq!(acts[0].pet_weight, Some(943.0));
+        assert_eq!(acts[0].waste_type.as_deref(), Some("Urine"));
+        assert_eq!(acts[1].r#type.as_deref(), Some("DRAWER_FULL"));
+        assert!(acts[1].pet_weight.is_none());
+        assert!(acts[1].pet_ids.is_empty());
+    }
+
+    #[test]
+    fn empty_activity_array_is_empty() {
+        // Offset past the retained window returns `[]`.
+        assert!(parse_activities("[]").unwrap().is_empty());
+    }
+
+    #[test]
+    fn activities_shape_change_is_decode_not_panic() {
+        // An error object instead of an array -> Decode.
+        let err = parse_activities(r#"{"message":"gone"}"#).unwrap_err();
+        assert_eq!(err.kind(), "decode");
+        // A field flips type (petWeight -> string) -> Decode.
+        let err = parse_activities(r#"[{"type":"PET_VISIT","petWeight":"heavy"}]"#).unwrap_err();
+        assert_eq!(err.kind(), "decode");
     }
 }
