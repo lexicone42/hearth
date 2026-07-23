@@ -44,6 +44,11 @@ fn standard_capability(class: DeviceClass) -> Option<(&'static str, &'static str
         C::Battery => ("battery", "battery"),
         C::Power => ("powerMeter", "power"),
         C::Energy => ("energyMeter", "energy"),
+        // A "needs attention" alert -> a virtual `contactSensor`: `open` when
+        // something needs changing (e.g. a full litter drawer), `closed` when
+        // clear. A binary sensor is the reliable trigger for an in-app
+        // SmartThings Routine's "notify members" action.
+        C::Alert => ("contactSensor", "contact"),
         _ => return None,
     })
 }
@@ -119,6 +124,13 @@ fn encode_value(
         }
         C::BatteryLow => match obs.value {
             Value::Flag(low) => Some((json!(if low { 10 } else { 100 }), Some("%"))),
+            _ => None,
+        },
+        // Alert -> contactSensor.contact: `open` = needs attention, `closed` =
+        // clear. Tracks current state each poll so the contact re-closes when
+        // resolved and a Routine can fire again next time it opens.
+        C::Alert => match obs.value {
+            Value::Flag(active) => Some((json!(if active { "open" } else { "closed" }), None)),
             _ => None,
         },
         // EcoFlow state-of-charge: SmartThings `battery` is an integer percent.
@@ -335,6 +347,30 @@ mod tests {
         )
         .unwrap();
         assert_eq!(low.value, json!("replace"));
+    }
+
+    #[test]
+    fn alert_maps_to_contact_sensor() {
+        // Needs attention -> contactSensor open.
+        let open = to_event(
+            &obs(DeviceClass::Alert, Value::Flag(true)),
+            UnitSystem::Imperial,
+        )
+        .unwrap();
+        assert_eq!(open.capability, "contactSensor");
+        assert_eq!(open.attribute, "contact");
+        assert_eq!(open.value, json!("open"));
+        assert_eq!(open.unit, None);
+
+        // Clear -> contactSensor closed (so a Routine can re-fire next time).
+        let closed = to_event(
+            &obs(DeviceClass::Alert, Value::Flag(false)),
+            UnitSystem::Metric,
+        )
+        .unwrap();
+        assert_eq!(closed.value, json!("closed"));
+
+        assert_eq!(capability_id(DeviceClass::Alert), Some("contactSensor"));
     }
 
     #[test]

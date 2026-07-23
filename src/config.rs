@@ -194,6 +194,22 @@ pub struct WhiskerConfig {
     /// Defaults to `data/whisker`.
     #[serde(default)]
     pub history_dir: Option<PathBuf>,
+    /// Waste-drawer fullness (percent) at/above which a box's `needs_service`
+    /// alert opens ("empty the drawer"). Defaults to 90.
+    #[serde(default = "default_drawer_full_pct")]
+    pub drawer_full_pct: f64,
+    /// Litter level (percent) at/below which a box's `needs_service` alert opens
+    /// ("add litter"). Defaults to 10.
+    #[serde(default = "default_litter_low_pct")]
+    pub litter_low_pct: f64,
+}
+
+fn default_drawer_full_pct() -> f64 {
+    90.0
+}
+
+fn default_litter_low_pct() -> f64 {
+    10.0
 }
 
 #[derive(Debug, Clone, Deserialize)]

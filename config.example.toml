@@ -60,6 +60,12 @@ interval_secs = 60
 # # personal pet data (kept out of git). Defaults to `data/whisker`. Seed it
 # # from a saved snapshot with:  hearth whisker-history-import <snapshot-dir>
 # # history_dir = "data/whisker"
+# # "Needs service" alert thresholds. Each box emits `whisker.<box>.needs_service`
+# # (opens when the drawer is at/over drawer_full_pct, the litter is at/under
+# # litter_low_pct, the drawer reports full, or the box is offline). Bind that
+# # entity to a SmartThings device (below) to drive a notification Routine.
+# # drawer_full_pct = 90
+# # litter_low_pct = 10
 
 # Optional: enable Dyson sources (local MQTT push). Each [[dyson]] block is ONE
 # device — repeat the block for multiple fans/purifiers. Omit them all to disable
@@ -116,6 +122,16 @@ interval_secs = 60
 #   "ambient_weather.outdoor.temperature",
 #   "ambient_weather.outdoor.humidity",
 # ]
+#
+# # Litter-box "time to change it" alert -> a virtual contactSensor (one per box,
+# # so the notification can name the box). `needs_service` opens the contact when
+# # the drawer is full / litter is low / the box is offline, and closes it when
+# # cleared. After `provision`, build a Routine in the SmartThings app:
+# #   IF  "Piano Room Litter" contact sensor is OPEN  THEN  Notify members
+# # (Routines CAN send push notifications — that's the reliable ST alert path.)
+# [[smartthings.devices]]
+# name = "Piano Room Litter"
+# entities = ["whisker.piano_room.needs_service"]
 #
 # # Read devices BACK from SmartThings (this makes it a *source*): e.g. a Wi-Fi
 # # lock cloud-linked to your account. hearth polls each on the poll interval and

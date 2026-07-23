@@ -76,6 +76,30 @@ pub fn robot_observations(robot: &Robot) -> Vec<Observation> {
     out
 }
 
+/// Evaluate a box's "needs service" alert and emit `whisker.<box>.needs_service`
+/// ([`DeviceClass::Alert`], a [`Value::Flag`]). It's `true` when the waste drawer
+/// is at/over `drawer_full_pct`, the litter is at/under `litter_low_pct`, the box
+/// explicitly reports the drawer full, or the box is offline. Always emitted —
+/// even when clear — so the signal tracks current state: the SmartThings contact
+/// opens on attention and closes when resolved, letting an in-app Routine fire
+/// again on the next transition. Pure and total.
+pub fn alert_observation(robot: &Robot, drawer_full_pct: f64, litter_low_pct: f64) -> Observation {
+    let s = &robot.state;
+    let drawer_full =
+        s.is_drawer_full == Some(true) || s.dfi_level_percent.is_some_and(|p| p >= drawer_full_pct);
+    let litter_low = s.litter_level_percent.is_some_and(|p| p <= litter_low_pct);
+    let offline = s.is_online == Some(false);
+    let needs_service = drawer_full || litter_low || offline;
+
+    let node = node_slug(&robot.name, &robot.serial);
+    Observation::new(
+        EntityId::new([SOURCE, node.as_str(), "needs_service"]),
+        DeviceClass::Alert,
+        Value::Flag(needs_service),
+        None,
+    )
+}
+
 /// Normalize one pet into its weight observation: `whisker.<cat_slug>.weight`
 /// ([`DeviceClass::Weight`], pounds), preferring the most recent MEASURED weight
 /// (`lastWeightReading`) and falling back to the profile `weight`. Emits nothing
@@ -320,6 +344,50 @@ mod tests {
             "petId": "PET-TEST-4", "name": "Fixture Four", "lastWeightReading": 0.0
         }));
         assert!(pet_observations(&zero).is_empty());
+    }
+
+    #[test]
+    fn alert_flags_need_for_service() {
+        let state = |extra: serde_json::Value| {
+            robot_from(serde_json::json!({
+                "serial": "LR5-TEST-000000", "name": "test room", "state": extra
+            }))
+        };
+
+        // Clear: online, drawer below / litter above the thresholds.
+        let clear = state(serde_json::json!({
+            "isOnline": true, "isDrawerFull": false,
+            "dfiLevelPercent": 39, "litterLevelPercent": 100.0
+        }));
+        let obs = alert_observation(&clear, 90.0, 10.0);
+        assert_eq!(obs.entity.as_str(), "whisker.test_room.needs_service");
+        assert_eq!(obs.class, DeviceClass::Alert);
+        assert_eq!(obs.value, Value::Flag(false));
+
+        // Each of the four attention conditions independently opens the alert.
+        let drawer_pct = state(serde_json::json!({ "isOnline": true, "dfiLevelPercent": 92 }));
+        assert_eq!(
+            alert_observation(&drawer_pct, 90.0, 10.0).value,
+            Value::Flag(true)
+        );
+
+        let drawer_flag = state(serde_json::json!({ "isOnline": true, "isDrawerFull": true }));
+        assert_eq!(
+            alert_observation(&drawer_flag, 90.0, 10.0).value,
+            Value::Flag(true)
+        );
+
+        let litter_low = state(serde_json::json!({ "isOnline": true, "litterLevelPercent": 8.0 }));
+        assert_eq!(
+            alert_observation(&litter_low, 90.0, 10.0).value,
+            Value::Flag(true)
+        );
+
+        let offline = state(serde_json::json!({ "isOnline": false, "litterLevelPercent": 100.0 }));
+        assert_eq!(
+            alert_observation(&offline, 90.0, 10.0).value,
+            Value::Flag(true)
+        );
     }
 
     #[test]

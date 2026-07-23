@@ -217,10 +217,17 @@ async fn run(
     // `visits.jsonl`, which the bus never carries).
     let (whisker, whisker_history) = match whisker {
         Some(client) => {
+            let (drawer_full_pct, litter_low_pct) = config
+                .whisker
+                .as_ref()
+                .map(|w| (w.drawer_full_pct, w.litter_low_pct))
+                .unwrap_or((90.0, 10.0));
             let live = tokio::spawn(run_whisker(
                 client.clone(),
                 config.unit_system,
                 config.poll.interval_secs,
+                drawer_full_pct,
+                litter_low_pct,
                 tx.clone(),
             ));
             let history_dir = whisker_history_dir(&config);
@@ -519,6 +526,8 @@ async fn run_whisker(
     client: Arc<WhiskerClient>,
     unit_system: domain::UnitSystem,
     interval_secs: u64,
+    drawer_full_pct: f64,
+    litter_low_pct: f64,
     tx: mpsc::Sender<Vec<Observation>>,
 ) {
     let base = Duration::from_secs(interval_secs);
@@ -539,6 +548,13 @@ async fn run_whisker(
                         warn!(serial = %robot.serial, name = %robot.name, "Whisker robot offline — reported state may be stale");
                     }
                     observations.extend(whisker::canonical::robot_observations(robot));
+                    // The "needs service" alert (drawer-full / litter-low /
+                    // offline) — a binary signal for the SmartThings notifier.
+                    observations.push(whisker::canonical::alert_observation(
+                        robot,
+                        drawer_full_pct,
+                        litter_low_pct,
+                    ));
                 }
             }
             Err(e) => log_whisker_error("robots", &e),
