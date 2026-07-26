@@ -165,9 +165,15 @@ async fn run(
     let state = config.api.as_ref().map(|_| api::StateStore::new());
     let api_server = match (&config.api, &state) {
         (Some(api_cfg), Some(store)) => Some(tokio::spawn({
+            // The Whisker archive dir feeds `/api/history` (weight sparklines);
+            // `None` when Whisker isn't configured.
+            let history_dir = config
+                .whisker
+                .as_ref()
+                .map(|_| whisker_history_dir(&config));
             let (api_cfg, store, system) = (api_cfg.clone(), store.clone(), config.unit_system);
             async move {
-                if let Err(e) = api::server::serve(api_cfg, store, system).await {
+                if let Err(e) = api::server::serve(api_cfg, store, system, history_dir).await {
                     error!(error = ?e, "api server exited");
                 }
             }

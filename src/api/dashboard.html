@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hearth — Home Board</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  /* ============================================================
+     "Hearth Board" — portrait home dashboard for the Samsung
+     Family Hub fridge (probed live: 720x1040 CSS px, portrait,
+     Chromium 130 — modern CSS/JS is safe). Committed single dark
+     world (a kitchen wall panel). Warm brown-black + brass, with
+     semantic good/warn/crit kept distinct from the brand accent.
+     ============================================================ */
+  :root {
+    --bg:#1a1712; --bg-2:#241f19; --bg-3:#2d271f; --hair:#3a3228;
+    --ink:#f2ece0; --muted:#a89f8f; --faint:#78705f;
+    --brass:#cba24e; --good:#77c08a; --warn:#e7a93e; --crit:#dc6a4c;
+    --ava:#e2875f; --teddy:#52b1a3; --helly:#a996db; --jame:#d6a63e;
+    --ui: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Roboto Mono", "DejaVu Sans Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); }
+  body {
+    color: var(--ink); font-family: var(--ui); -webkit-font-smoothing: antialiased;
+    line-height: 1.3; padding: 16px;
+    background: radial-gradient(680px 480px at 84% -8%, #241c14 0%, rgba(36,28,20,0) 62%), var(--bg);
+  }
+  .board { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+
+  /* header */
+  header { display: flex; flex-direction: column; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--hair); }
+  .hrow { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; }
+  .mark { font-size: 26px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
+  .mark b { color: var(--brass); }
+  .clock { font-family: var(--mono); font-size: 30px; font-variant-numeric: tabular-nums; }
+  .date { color: var(--muted); font-size: 12.5px; letter-spacing: 0.1em; text-transform: uppercase; }
+  .verdict { display: inline-flex; align-items: center; gap: 9px; padding: 8px 15px; border-radius: 999px; font-size: 15px; font-weight: 600; border: 1px solid transparent; }
+  .verdict .dot { width: 9px; height: 9px; border-radius: 50%; }
+  .verdict.ok { background: rgba(119,192,138,.12); border-color: rgba(119,192,138,.32); color: var(--good); }
+  .verdict.ok .dot { background: var(--good); box-shadow: 0 0 10px var(--good); }
+  .verdict.attn { background: rgba(231,169,62,.13); border-color: rgba(231,169,62,.34); color: var(--warn); }
+  .verdict.attn .dot { background: var(--warn); box-shadow: 0 0 10px var(--warn); }
+  .updated { color: var(--faint); font-size: 12px; font-family: var(--mono); }
+
+  .eyebrow { display: flex; align-items: center; gap: 12px; color: var(--faint); font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; margin: 2px; }
+  .eyebrow::after { content: ""; flex: 1; height: 1px; background: var(--hair); }
+  .eyebrow .count { color: var(--muted); letter-spacing: 0.06em; }
+  section { display: flex; flex-direction: column; gap: 9px; }
+
+  .card { background: linear-gradient(180deg, var(--bg-2), #201b15); border: 1px solid var(--hair); border-radius: 14px; padding: 14px; }
+
+  /* litter boxes: 3 across */
+  .boxes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .box { position: relative; overflow: hidden; }
+  .box::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--good); }
+  .box.warn::before { background: var(--warn); }
+  .box.crit::before { background: var(--crit); }
+  .box-head { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+  .box-name { font-size: 16px; font-weight: 650; }
+  .pill { font-size: 11.5px; font-weight: 650; padding: 4px 9px; border-radius: 999px; align-self: flex-start; white-space: nowrap; }
+  .pill.good { color: var(--good); background: rgba(119,192,138,.13); }
+  .pill.warn { color: var(--warn); background: rgba(231,169,62,.14); }
+  .pill.crit { color: #241b12; background: var(--crit); }
+  .meter { margin-top: 10px; }
+  .meter-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px; }
+  .meter-label { font-size: 11.5px; color: var(--muted); }
+  .meter-val { font-family: var(--mono); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+  .track { height: 9px; border-radius: 6px; background: var(--bg-3); overflow: hidden; }
+  .fill { height: 100%; border-radius: 6px; transition: width .6s ease; }
+
+  /* cats: 2 x 2 */
+  .cats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .cat { display: flex; flex-direction: column; gap: 8px; }
+  .cat-head { display: flex; align-items: center; gap: 9px; }
+  .chip { width: 12px; height: 12px; border-radius: 50%; }
+  .cat-name { font-size: 17px; font-weight: 650; }
+  .cat-weight { display: flex; align-items: baseline; gap: 6px; }
+  .cat-weight .n { font-family: var(--mono); font-size: 38px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+  .cat-weight .u { color: var(--muted); font-size: 15px; }
+  .spark { width: 100%; height: 42px; display: block; }
+  .cat-foot { display: flex; align-items: center; justify-content: space-between; font-size: 12.5px; }
+  .trend { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
+  .trend.flat { color: var(--muted); } .trend.down { color: var(--warn); } .trend.up { color: var(--good); }
+  .visits { color: var(--faint); font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  /* weather: 3 x 2 */
+  .weather { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .wx { display: flex; flex-direction: column; gap: 3px; padding: 12px; }
+  .wx .lbl { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); }
+  .wx .v { font-family: var(--mono); font-size: 23px; font-variant-numeric: tabular-nums; }
+  .wx .v small { font-family: var(--ui); font-size: 12.5px; color: var(--muted); margin-left: 2px; }
+  .wx .sub { font-size: 11.5px; color: var(--muted); }
+  .wx.cold .v { color: #7fb6e0; } .wx.hot .v { color: var(--warn); }
+
+  footer { display: flex; align-items: center; justify-content: space-between; color: var(--faint); font-size: 11.5px; padding-top: 2px; }
+  .live { display: inline-flex; align-items: center; gap: 8px; }
+  .live .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); box-shadow: 0 0 8px var(--good); animation: pulse 2.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) { .live .dot, .fill { animation: none; transition: none; } }
+</style>
+</head>
+<body>
+
+<div class="board">
+  <header>
+    <div class="hrow">
+      <div class="mark">Hea<b>r</b>th</div>
+      <div style="text-align:right"><div id="clock" class="clock">--:--</div><div id="date" class="date"></div></div>
+    </div>
+    <div class="hrow">
+      <div id="verdict" class="verdict ok"><span class="dot"></span><span id="verdict-text">&mdash;</span></div>
+      <div id="updated" class="updated">connecting&hellip;</div>
+    </div>
+  </header>
+
+  <section><div class="eyebrow">Litter Boxes <span id="box-count" class="count"></span></div><div id="boxes" class="boxes"></div></section>
+  <section><div class="eyebrow">Cats <span class="count">weight &amp; 10-day trend</span></div><div id="cats" class="cats"></div></section>
+  <section><div class="eyebrow">Around the House</div><div id="weather" class="weather"></div></section>
+
+  <footer><span class="live"><span class="dot"></span><span>hearth</span></span><span>litter-robot 5 · ambient weather</span></footer>
+</div>
+
+<script>
+/* --------------------------------------------------------------------------
+   Live wiring. In production hearth serves this file and injects the API
+   token below; the page polls /api/latest (+ /api/history for sparklines),
+   paints instantly from localStorage, and REFETCHES ON WAKE — the key
+   reliability fix, since the fridge's screensaver freezes the page. If the
+   API is unreachable (e.g. this preview on claude.ai), it falls back to the
+   embedded snapshot of real values.
+   -------------------------------------------------------------------------- */
+var TOKEN = "__HEARTH_API_TOKEN__";
+if (TOKEN.indexOf("__HEARTH") === 0) TOKEN = "";   // not injected (preview)
+
+var CAT_COLOR = { ava: "var(--ava)", teddy: "var(--teddy)", helly: "var(--helly)", jame: "var(--jame)" };
+var TH = { drawerFull: 90, litterLow: 10, drawerWarn: 70, litterWarn: 25 };
+
+/* embedded fallback = a real snapshot (also the instant first paint) */
+var FALLBACK = {
+  boxes: [
+    { slug: "piano_room", name: "Piano Room", status: "Ready", litter: 100, drawer: 31, needs: false },
+    { slug: "bonus_room", name: "Bonus Room", status: "Ready", litter: 98, drawer: 49, needs: false },
+    { slug: "guest_room_5", name: "Guest Room 5", status: "Ready", litter: 77, drawer: 25, needs: false }
+  ],
+  cats: [
+    { slug: "ava", name: "Ava", weight: 7.5, visits: 133, series: [7.48,7.38,7.46,7.55,7.52,7.30,7.43,7.45,7.39,7.54] },
+    { slug: "helly", name: "Helly", weight: 9.5, visits: 170, series: [9.49,9.47,9.52,9.49,9.50,9.47,9.44,9.46,9.52,9.49] },
+    { slug: "teddy", name: "Teddy", weight: 9.6, visits: 142, series: [9.80,9.86,9.78,9.83,9.80,9.74,9.74,9.73,9.64,9.61] },
+    { slug: "jame", name: "Jame", weight: 11.8, visits: 127, series: [11.75,11.67,11.76,11.82,11.79,11.80,11.67,11.68,11.66,11.69] }
+  ],
+  weather: [
+    { lbl: "Outdoor", v: "69.1", u: "°F", sub: "feels 69 · 72%" },
+    { lbl: "Indoor", v: "67.8", u: "°F", sub: "70% humidity" },
+    { lbl: "Freezer", v: "-3.8", u: "°F", sub: "chest freezer", cls: "cold" },
+    { lbl: "Greenhouse", v: "80.1", u: "°F", sub: "soil 2%", cls: "hot" },
+    { lbl: "UV Index", v: "7", u: "", sub: "solar 741" },
+    { lbl: "Pressure", v: "29.7", u: "inHg", sub: "wind SSE" }
+  ]
+};
+
+function el(t, c, h) { var e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; }
+function title(slug) { return slug.split("_").map(function (w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(" "); }
+function sev(b) {
+  if (b.drawer >= TH.drawerFull || b.litter <= TH.litterLow || b.needs) return "crit";
+  if (b.drawer >= TH.drawerWarn || b.litter <= TH.litterWarn) return "warn";
+  return "good";
+}
+
+function render(data) {
+  /* verdict + boxes */
+  var boxesEl = document.getElementById("boxes"); boxesEl.innerHTML = "";
+  var attention = 0;
+  data.boxes.forEach(function (b) {
+    var sv = sev(b); if (sv !== "good") attention++;
+    var card = el("div", "card box " + (sv === "good" ? "" : sv));
+    var label = sv === "crit" ? (b.needs ? "Needs changing" : (b.litter <= TH.litterLow ? "Add litter" : "Empty drawer"))
+             : (sv === "warn" ? "Getting there" : (b.status || "Ready"));
+    card.appendChild(el("div", "box-head", '<div class="box-name">' + b.name + '</div><div class="pill ' + sv + '">' + label + '</div>'));
+    card.appendChild(meter("Litter", b.litter, b.litter <= TH.litterLow ? "var(--crit)" : (b.litter <= TH.litterWarn ? "var(--warn)" : "var(--good)")));
+    card.appendChild(meter("Drawer", b.drawer, b.drawer >= TH.drawerFull ? "var(--crit)" : (b.drawer >= TH.drawerWarn ? "var(--warn)" : "#8a7f6b")));
+    boxesEl.appendChild(card);
+  });
+  document.getElementById("box-count").textContent = attention === 0 ? "all ready" : attention + " need attention";
+  var v = document.getElementById("verdict"), vt = document.getElementById("verdict-text");
+  if (attention === 0) { v.className = "verdict ok"; vt.textContent = "All clear"; }
+  else { v.className = "verdict attn"; vt.textContent = attention + (attention === 1 ? " box needs you" : " boxes need you"); }
+
+  /* cats */
+  var catsEl = document.getElementById("cats"); catsEl.innerHTML = "";
+  data.cats.forEach(function (c) {
+    var color = CAT_COLOR[c.slug] || "var(--brass)";
+    var s = c.series && c.series.length > 1 ? c.series : [c.weight, c.weight];
+    var delta = s[s.length - 1] - s[0];
+    var dir = Math.abs(delta) < 0.12 ? "flat" : (delta < 0 ? "down" : "up");
+    var arrow = dir === "flat" ? "steady" : ((dir === "down" ? "▼ " : "▲ ") + Math.abs(delta).toFixed(1) + " lb");
+    var card = el("div", "card cat");
+    card.appendChild(el("div", "cat-head", '<span class="chip" style="background:' + color + '"></span><span class="cat-name">' + c.name + '</span>'));
+    card.appendChild(el("div", "cat-weight", '<span class="n">' + Number(c.weight).toFixed(1) + '</span><span class="u">lb</span>'));
+    card.appendChild(sparkline(s, color));
+    card.appendChild(el("div", "cat-foot", '<span class="trend ' + dir + '">' + arrow + '</span><span class="visits">' + (c.visits || 0) + ' visits</span>'));
+    catsEl.appendChild(card);
+  });
+
+  /* weather */
+  var wxEl = document.getElementById("weather"); wxEl.innerHTML = "";
+  data.weather.forEach(function (w) {
+    var card = el("div", "card wx " + (w.cls || ""));
+    card.appendChild(el("div", "lbl", w.lbl));
+    card.appendChild(el("div", "v", w.v + (w.u ? '<small>' + w.u + '</small>' : "")));
+    card.appendChild(el("div", "sub", w.sub || ""));
+    wxEl.appendChild(card);
+  });
+
+  function meter(lbl, val, color) {
+    var m = el("div", "meter");
+    m.appendChild(el("div", "meter-top", '<span class="meter-label">' + lbl + '</span><span class="meter-val">' + Math.round(val) + '%</span>'));
+    var track = el("div", "track"), fill = el("div", "fill");
+    fill.style.width = Math.max(2, Math.min(100, val)) + "%"; fill.style.background = color;
+    track.appendChild(fill); m.appendChild(track); return m;
+  }
+  function sparkline(series, color) {
+    var W = 300, H = 42, pad = 4;
+    var min = Math.min.apply(null, series), max = Math.max.apply(null, series), rng = (max - min) || 1;
+    var sx = (W - pad * 2) / (series.length - 1);
+    var pts = series.map(function (val, i) { return [pad + i * sx, pad + (1 - (val - min) / rng) * (H - pad * 2)]; });
+    var line = pts.map(function (p, i) { return (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1); }).join(" ");
+    var area = line + " L" + pts[pts.length - 1][0].toFixed(1) + " " + (H - pad) + " L" + pts[0][0].toFixed(1) + " " + (H - pad) + " Z";
+    var e = pts[pts.length - 1], id = "g" + Math.round(e[1] * 100) + series.length;
+    var svg = '<svg class="spark" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" aria-hidden="true">' +
+      '<defs><linearGradient id="' + id + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + color + '" stop-opacity="0.28"/><stop offset="1" stop-color="' + color + '" stop-opacity="0"/></linearGradient></defs>' +
+      '<path d="' + area + '" fill="url(#' + id + ')"/>' +
+      '<path d="' + line + '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' +
+      '<circle cx="' + e[0].toFixed(1) + '" cy="' + e[1].toFixed(1) + '" r="3.2" fill="' + color + '"/></svg>';
+    var d = el("div"); d.innerHTML = svg; return d.firstChild;
+  }
+}
+
+/* ---- API → normalized shape ---- */
+function normalize(snap, hist) {
+  var byId = {}; (snap.entities || []).forEach(function (e) { byId[e.entity] = e; });
+  var nodes = {}, re = /^whisker\.([a-z0-9_]+)\.(litter_level|waste_drawer|status|needs_service|weight)$/;
+  (snap.entities || []).forEach(function (e) {
+    var m = re.exec(e.entity); if (!m) return;
+    (nodes[m[1]] = nodes[m[1]] || {})[m[2]] = e;
+  });
+  var boxes = [], cats = [];
+  Object.keys(nodes).forEach(function (slug) {
+    var n = nodes[slug];
+    if (n.litter_level || n.waste_drawer) {
+      boxes.push({ slug: slug, name: title(slug),
+        litter: n.litter_level ? Number(n.litter_level.value) : 100,
+        drawer: n.waste_drawer ? Number(n.waste_drawer.value) : 0,
+        status: n.status ? String(n.status.value) : "Ready",
+        needs: n.needs_service ? n.needs_service.value === true : false });
+    } else if (n.weight) {
+      cats.push({ slug: slug, name: title(slug), weight: Number(n.weight.value),
+        visits: (hist && hist[slug] && hist[slug].visits) || 0,
+        series: (hist && hist[slug] && hist[slug].series) || null });
+    }
+  });
+  boxes.sort(function (a, b) { return a.name < b.name ? -1 : 1; });
+  cats.sort(function (a, b) { return a.weight - b.weight; });
+
+  function disp(id) { return byId[id] ? byId[id].display : null; }
+  function num(id) { return byId[id] ? byId[id].value : null; }
+  var weather = [
+    { lbl: "Outdoor", v: fmt(num("ambient_weather.outdoor.temperature")), u: "°F", sub: "feels " + rnd(num("ambient_weather.outdoor.feels_like")) + " · " + rnd(num("ambient_weather.outdoor.humidity")) + "%" },
+    { lbl: "Indoor", v: fmt(num("ambient_weather.indoor.temperature")), u: "°F", sub: rnd(num("ambient_weather.indoor.humidity")) + "% humidity" },
+    { lbl: "Freezer", v: fmt(num("ambient_weather.sensor_7.temperature")), u: "°F", sub: "chest freezer", cls: "cold" },
+    { lbl: "Greenhouse", v: fmt(num("ambient_weather.sensor_4.temperature")), u: "°F", sub: "greenhouse", cls: "hot" },
+    { lbl: "UV Index", v: rnd(num("ambient_weather.sun.uv_index")), u: "", sub: disp("ambient_weather.sun.solar_radiation") ? "solar " + rnd(num("ambient_weather.sun.solar_radiation")) : "" },
+    { lbl: "Pressure", v: fmt(num("ambient_weather.barometer.relative")), u: "inHg", sub: "barometer" }
+  ].filter(function (w) { return w.v !== "—"; });
+
+  return { boxes: boxes.length ? boxes : FALLBACK.boxes, cats: cats.length ? cats : FALLBACK.cats, weather: weather.length ? weather : FALLBACK.weather };
+}
+function fmt(x) { return x == null ? "—" : Number(x).toFixed(1); }
+function rnd(x) { return x == null ? "?" : Math.round(Number(x)); }
+
+/* ---- fetch + poll + wake-refetch ---- */
+function apiGet(path) {
+  var opt = TOKEN ? { headers: { Authorization: "Bearer " + TOKEN } } : {};
+  return fetch(path, opt).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); });
+}
+function pull() {
+  return Promise.all([apiGet("/api/latest"), apiGet("/api/history?days=10").catch(function () { return null; })])
+    .then(function (res) {
+      var data = normalize(res[0], res[1]);
+      render(data);
+      try { localStorage.setItem("hearth.snap", JSON.stringify(data)); } catch (e) {}
+      stamp(true);
+    })
+    .catch(function () { stamp(false); });   /* unreachable (e.g. preview): keep last paint */
+}
+function stamp(ok) {
+  var d = new Date(), hh = String(d.getHours()).length < 2 ? "0" + d.getHours() : d.getHours(), mm = String(d.getMinutes()).length < 2 ? "0" + d.getMinutes() : d.getMinutes();
+  document.getElementById("updated").textContent = (ok ? "updated " : "offline · last ") + hh + ":" + mm;
+}
+
+/* clock */
+function tick() {
+  var d = new Date(), h = d.getHours(), m = d.getMinutes(), ap = h >= 12 ? "PM" : "AM", hh = (h % 12) || 12;
+  document.getElementById("clock").textContent = hh + ":" + (m < 10 ? "0" + m : m) + " " + ap;
+  document.getElementById("date").textContent = d.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+}
+
+/* boot: instant paint from cache/fallback, then go live */
+(function boot() {
+  var seed = FALLBACK;
+  try { var s = localStorage.getItem("hearth.snap"); if (s) seed = JSON.parse(s); } catch (e) {}
+  render(seed);
+  tick(); setInterval(tick, 10000);
+  pull();
+  var timer = setInterval(function () { if (!document.hidden) pull(); }, 12000);
+  /* wake-refetch: the #1 reliability fix — the panel freezes while asleep */
+  document.addEventListener("visibilitychange", function () { if (!document.hidden) pull(); });
+  window.addEventListener("focus", pull);
+  window.addEventListener("pageshow", pull);
+  /* memory backstop: reload only while the screen is asleep, never under a finger */
+  setInterval(function () { if (document.hidden) location.reload(); }, 20 * 60 * 1000);
+})();
+</script>
+</body>
+</html>
