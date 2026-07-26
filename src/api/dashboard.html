@@ -237,9 +237,21 @@ function renderNav(m) {
     nav.appendChild(a);
   });
 }
+/* Slugs are always lowercase [a-z0-9_] (server-side slugify). Validating the
+   fragment here closes the DOM-XSS vector: a hostile #/cat/<payload> fails the
+   test and falls back to overview, so nothing from the URL reaches innerHTML. */
+var SLUG_RE = /^[a-z0-9_]+$/;
 function route() {
   var h = location.hash.replace(/^#\/?/, ""), p = h.split("/");
-  return (p[0] === "cat" && p[1]) ? { view: "cat", slug: p[1] } : { view: h || "overview" };
+  if (p[0] === "cat" && SLUG_RE.test(p[1] || "")) return { view: "cat", slug: p[1] };
+  return { view: SLUG_RE.test(h) ? h : "overview" };
+}
+/* Escape text destined for an innerHTML template (defense in depth for values
+   that originate from a vendor API — statuses, device names). */
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  });
 }
 function paint(m) {
   LAST = m;
@@ -261,7 +273,7 @@ function renderOverview(m, root) {
     var sv = sevBox(b); if (sv !== "good") attention++;
     var card = el("div", "card box " + (sv === "good" ? "" : sv));
     var label = sv === "crit" ? (b.needs ? "Needs changing" : (b.litter <= TH.litterLow ? "Add litter" : "Empty drawer")) : (sv === "warn" ? "Getting there" : (b.status || "Ready"));
-    card.appendChild(el("div", "box-head", '<div class="box-name">' + b.name + '</div><div class="pill ' + sv + '">' + label + '</div>'));
+    card.appendChild(el("div", "box-head", '<div class="box-name">' + esc(b.name) + '</div><div class="pill ' + sv + '">' + esc(label) + '</div>'));
     card.appendChild(meter("Litter", b.litter, b.litter <= TH.litterLow ? "var(--crit)" : (b.litter <= TH.litterWarn ? "var(--warn)" : "var(--good)")));
     card.appendChild(meter("Drawer", b.drawer, b.drawer >= TH.drawerFull ? "var(--crit)" : (b.drawer >= TH.drawerWarn ? "var(--warn)" : "#8a7f6b")));
     wrap.appendChild(card);
@@ -359,7 +371,9 @@ function meter(lbl, val, color) {
 function metric(lbl, e, cls) {
   var card = el("div", "m " + (cls || ""));
   card.appendChild(el("div", "lbl", lbl));
-  var val = e.unit ? '<span>' + fmtNum(e.value) + '</span><small>' + e.unit + '</small>' : String(e.value);
+  var val = e.unit
+    ? '<span>' + esc(fmtNum(e.value)) + '</span><small>' + esc(e.unit) + '</small>'
+    : esc(String(e.value));
   card.appendChild(el("div", "v", val));
   return card;
 }
@@ -410,7 +424,7 @@ function renderCatDetail(slug, m, root) {
 
   var back = el("a", "tab", "‹ All cats"); back.href = "#/cats"; root.appendChild(back);
   var head = el("div", "card cat");
-  head.appendChild(el("div", "cat-head", '<span class="chip" style="background:' + color + '"></span><span class="cat-name">' + cat.name + '</span>'));
+  head.appendChild(el("div", "cat-head", '<span class="chip" style="background:' + color + '"></span><span class="cat-name">' + esc(cat.name) + '</span>'));
   head.appendChild(el("div", "cat-weight", '<span class="n">' + Number(cat.weight).toFixed(1) + '</span><span class="u">lb now</span>'));
   root.appendChild(head);
 
@@ -502,11 +516,11 @@ function hbarsHTML(rows, color) {
   var wrap = el("div", "grp"); wrap.style.gap = "9px";
   rows.forEach(function (r) {
     var row = el("div"); row.style.cssText = "display:flex;align-items:center;gap:10px;";
-    var lbl = el("div", null, r.label); lbl.style.cssText = "width:120px;font-size:13px;color:var(--muted);";
+    var lbl = el("div"); lbl.textContent = r.label; lbl.style.cssText = "width:120px;font-size:13px;color:var(--muted);";
     var track = el("div"); track.style.cssText = "flex:1;height:14px;background:var(--bg-3);border-radius:5px;overflow:hidden;";
     var fill = el("div"); fill.style.cssText = "height:100%;width:" + Math.max(3, (r.value / max) * 100) + "%;background:" + color + ";opacity:.85;";
     track.appendChild(fill);
-    var val = el("div", null, String(r.value)); val.style.cssText = "width:36px;text-align:right;font-family:var(--mono);font-size:13px;";
+    var val = el("div"); val.textContent = String(r.value); val.style.cssText = "width:36px;text-align:right;font-family:var(--mono);font-size:13px;";
     row.appendChild(lbl); row.appendChild(track); row.appendChild(val); wrap.appendChild(row);
   });
   return wrap;
