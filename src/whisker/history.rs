@@ -266,6 +266,65 @@ fn median(xs: &[f64]) -> f64 {
     }
 }
 
+/// A slim per-visit projection for the per-cat detail page. The page computes
+/// its own weight / waste / box / activity charts from these, so a new
+/// visualization is a front-end change only (no new endpoint).
+#[derive(Debug, Clone, Serialize)]
+pub struct VisitLite {
+    pub ts: String,
+    pub box_name: String,
+    pub weight: f64,
+    pub waste: Option<String>,
+    pub duration: Option<i64>,
+}
+
+/// Every plausible visit for one cat (by `slug`) over the most recent `max_days`
+/// days with data, chronological. Feeds `GET /api/visits`. Implausible weights
+/// (outside 3..=30 lb) are dropped as noise. Empty when the archive is missing
+/// or the cat/slug is unknown.
+pub fn cat_visits(dir: impl AsRef<Path>, slug: &str, max_days: usize) -> Vec<VisitLite> {
+    let path = dir.as_ref().join(VisitStore::FILE_NAME);
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+
+    let mut by_day: BTreeMap<String, Vec<VisitLite>> = BTreeMap::new();
+    for line in text.lines() {
+        let Ok(rec) = serde_json::from_str::<VisitRecord>(line) else {
+            continue;
+        };
+        let Some(cat) = rec.cat.as_deref() else {
+            continue;
+        };
+        if crate::whisker::canonical::slugify(cat) != slug {
+            continue;
+        }
+        if !(3.0..=30.0).contains(&rec.weight_lb) || rec.ts.len() < 10 {
+            continue;
+        }
+        by_day
+            .entry(rec.ts[..10].to_string())
+            .or_default()
+            .push(VisitLite {
+                ts: rec.ts,
+                box_name: rec.box_name,
+                weight: rec.weight_lb,
+                waste: rec.waste_type,
+                duration: rec.duration_s,
+            });
+    }
+
+    // Keep the most recent `max_days` days, then flatten to a single ts-sorted list.
+    let mut out: Vec<VisitLite> = by_day
+        .into_iter()
+        .rev()
+        .take(max_days)
+        .flat_map(|(_, v)| v)
+        .collect();
+    out.sort_by(|a, b| a.ts.cmp(&b.ts));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -481,5 +540,56 @@ mod tests {
         for (slug, cs) in &s {
             eprintln!("{slug}: {:?}  ({} visits/10d)", cs.series, cs.visits);
         }
+    }
+
+    #[test]
+    fn cat_visits_filters_by_slug_windows_and_drops_noise() {
+        let dir = unique_dir("catvisits");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut store = VisitStore::open(&dir).unwrap();
+        store
+            .append_new(vec![
+                rec("V1", "2026-01-01T08:00:00Z", "Fixture One", 9.4),
+                rec("V2", "2026-01-02T09:00:00Z", "Fixture One", 9.5),
+                rec("V3", "2026-01-02T10:00:00Z", "Fixture One", 0.02), // noise, dropped
+                rec("V4", "2026-01-02T11:00:00Z", "Fixture Two", 7.0),  // other cat
+            ])
+            .unwrap();
+
+        let v = cat_visits(&dir, "fixture_one", 30);
+        assert_eq!(v.len(), 2); // noise dropped, other cat excluded
+        assert!(v[0].ts < v[1].ts); // chronological
+        assert_eq!(v[0].weight, 9.4);
+
+        // Window to the most recent day only.
+        let recent = cat_visits(&dir, "fixture_one", 1);
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].ts, "2026-01-02T09:00:00Z");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    #[ignore = "reads the real local data/whisker archive"]
+    fn real_cat_visits() {
+        let v = cat_visits("data/whisker", "helly", 30);
+        assert!(!v.is_empty(), "expected Helly visits in the real archive");
+        let urine = v
+            .iter()
+            .filter(|x| x.waste.as_deref() == Some("Urine"))
+            .count();
+        let feces = v
+            .iter()
+            .filter(|x| x.waste.as_deref() == Some("Feces"))
+            .count();
+        let boxes: std::collections::BTreeMap<&str, usize> =
+            v.iter().fold(Default::default(), |mut m, x| {
+                *m.entry(x.box_name.as_str()).or_default() += 1;
+                m
+            });
+        eprintln!(
+            "helly: {} visits over 30d | {urine} urine, {feces} feces | boxes {boxes:?}",
+            v.len()
+        );
     }
 }
