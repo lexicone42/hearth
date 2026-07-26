@@ -5,17 +5,15 @@
 <title>Hearth — Home Board</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
-  /* ============================================================
-     "Hearth Board" — portrait home dashboard for the Samsung
-     Family Hub fridge (probed live: 720x1040 CSS px, portrait,
-     Chromium 130 — modern CSS/JS is safe). Committed single dark
-     world (a kitchen wall panel). Warm brown-black + brass, with
-     semantic good/warn/crit kept distinct from the brand accent.
-     ============================================================ */
+  /* Hearth Board — portrait multi-view home dashboard for the Samsung Family
+     Hub fridge (probed: 720x1040 CSS px, portrait, Chromium 130). One page,
+     tabbed views swapped client-side via #hash routes (no reloads). Committed
+     single dark world; warm brown-black + brass; semantic good/warn/crit kept
+     distinct from the brand accent. */
   :root {
     --bg:#1a1712; --bg-2:#241f19; --bg-3:#2d271f; --hair:#3a3228;
     --ink:#f2ece0; --muted:#a89f8f; --faint:#78705f;
-    --brass:#cba24e; --good:#77c08a; --warn:#e7a93e; --crit:#dc6a4c;
+    --brass:#cba24e; --good:#77c08a; --warn:#e7a93e; --crit:#dc6a4c; --cool:#7fb6e0;
     --ava:#e2875f; --teddy:#52b1a3; --helly:#a996db; --jame:#d6a63e;
     --ui: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
     --mono: ui-monospace, "SF Mono", "Roboto Mono", "DejaVu Sans Mono", monospace;
@@ -23,76 +21,89 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); }
   body {
-    color: var(--ink); font-family: var(--ui); -webkit-font-smoothing: antialiased;
-    line-height: 1.3; padding: 16px;
+    color: var(--ink); font-family: var(--ui); -webkit-font-smoothing: antialiased; line-height: 1.3;
+    padding: 16px 16px 28px;
     background: radial-gradient(680px 480px at 84% -8%, #241c14 0%, rgba(36,28,20,0) 62%), var(--bg);
   }
-  .board { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+  .board { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
 
-  /* header */
-  header { display: flex; flex-direction: column; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--hair); }
+  header { display: flex; flex-direction: column; gap: 10px; }
   .hrow { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; }
-  .mark { font-size: 26px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
+  .mark { font-size: 25px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
   .mark b { color: var(--brass); }
-  .clock { font-family: var(--mono); font-size: 30px; font-variant-numeric: tabular-nums; }
-  .date { color: var(--muted); font-size: 12.5px; letter-spacing: 0.1em; text-transform: uppercase; }
-  .verdict { display: inline-flex; align-items: center; gap: 9px; padding: 8px 15px; border-radius: 999px; font-size: 15px; font-weight: 600; border: 1px solid transparent; }
+  .clock { font-family: var(--mono); font-size: 28px; font-variant-numeric: tabular-nums; }
+  .date { color: var(--muted); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; }
+  .verdict { display: inline-flex; align-items: center; gap: 9px; padding: 7px 14px; border-radius: 999px; font-size: 14px; font-weight: 600; border: 1px solid transparent; }
   .verdict .dot { width: 9px; height: 9px; border-radius: 50%; }
   .verdict.ok { background: rgba(119,192,138,.12); border-color: rgba(119,192,138,.32); color: var(--good); }
   .verdict.ok .dot { background: var(--good); box-shadow: 0 0 10px var(--good); }
   .verdict.attn { background: rgba(231,169,62,.13); border-color: rgba(231,169,62,.34); color: var(--warn); }
   .verdict.attn .dot { background: var(--warn); box-shadow: 0 0 10px var(--warn); }
-  .updated { color: var(--faint); font-size: 12px; font-family: var(--mono); }
+  .updated { color: var(--faint); font-size: 11.5px; font-family: var(--mono); }
 
+  /* nav */
+  nav { display: flex; gap: 7px; flex-wrap: wrap; border-bottom: 1px solid var(--hair); padding-bottom: 12px; }
+  .tab { appearance: none; border: 1px solid var(--hair); background: var(--bg-2); color: var(--muted);
+    font: inherit; font-size: 14px; font-weight: 600; padding: 8px 15px; border-radius: 999px; cursor: pointer; text-decoration: none; }
+  .tab:hover { color: var(--ink); }
+  .tab.active { color: #241b12; background: var(--brass); border-color: var(--brass); }
+  .tab:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+
+  section.view { display: flex; flex-direction: column; gap: 14px; }
   .eyebrow { display: flex; align-items: center; gap: 12px; color: var(--faint); font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; margin: 2px; }
   .eyebrow::after { content: ""; flex: 1; height: 1px; background: var(--hair); }
   .eyebrow .count { color: var(--muted); letter-spacing: 0.06em; }
-  section { display: flex; flex-direction: column; gap: 9px; }
-
+  .grp { display: flex; flex-direction: column; gap: 9px; }
   .card { background: linear-gradient(180deg, var(--bg-2), #201b15); border: 1px solid var(--hair); border-radius: 14px; padding: 14px; }
 
-  /* litter boxes: 3 across */
+  /* litter */
   .boxes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
   .box { position: relative; overflow: hidden; }
   .box::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--good); }
-  .box.warn::before { background: var(--warn); }
-  .box.crit::before { background: var(--crit); }
+  .box.warn::before { background: var(--warn); } .box.crit::before { background: var(--crit); }
   .box-head { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
   .box-name { font-size: 16px; font-weight: 650; }
-  .pill { font-size: 11.5px; font-weight: 650; padding: 4px 9px; border-radius: 999px; align-self: flex-start; white-space: nowrap; }
+  .pill { font-size: 11px; font-weight: 650; padding: 4px 9px; border-radius: 999px; align-self: flex-start; white-space: nowrap; }
   .pill.good { color: var(--good); background: rgba(119,192,138,.13); }
   .pill.warn { color: var(--warn); background: rgba(231,169,62,.14); }
   .pill.crit { color: #241b12; background: var(--crit); }
   .meter { margin-top: 10px; }
   .meter-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px; }
   .meter-label { font-size: 11.5px; color: var(--muted); }
-  .meter-val { font-family: var(--mono); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+  .meter-val { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; }
   .track { height: 9px; border-radius: 6px; background: var(--bg-3); overflow: hidden; }
   .fill { height: 100%; border-radius: 6px; transition: width .6s ease; }
 
-  /* cats: 2 x 2 */
+  /* cats grid (overview) + cat detail */
   .cats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
   .cat { display: flex; flex-direction: column; gap: 8px; }
   .cat-head { display: flex; align-items: center; gap: 9px; }
   .chip { width: 12px; height: 12px; border-radius: 50%; }
   .cat-name { font-size: 17px; font-weight: 650; }
   .cat-weight { display: flex; align-items: baseline; gap: 6px; }
-  .cat-weight .n { font-family: var(--mono); font-size: 38px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
-  .cat-weight .u { color: var(--muted); font-size: 15px; }
-  .spark { width: 100%; height: 42px; display: block; }
-  .cat-foot { display: flex; align-items: center; justify-content: space-between; font-size: 12.5px; }
+  .cat-weight .n { font-family: var(--mono); font-size: 36px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+  .cat-weight .u { color: var(--muted); font-size: 14px; }
+  .spark { width: 100%; display: block; }
+  .cat-foot { display: flex; align-items: center; justify-content: space-between; font-size: 12px; }
   .trend { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
   .trend.flat { color: var(--muted); } .trend.down { color: var(--warn); } .trend.up { color: var(--good); }
   .visits { color: var(--faint); font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .cat-detail .spark { height: 88px; }
+  .cat-detail { gap: 10px; }
+  .minmax { display: flex; gap: 16px; font-size: 12px; color: var(--muted); font-family: var(--mono); }
+  .minmax b { color: var(--ink); font-weight: 600; }
 
-  /* weather: 3 x 2 */
-  .weather { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-  .wx { display: flex; flex-direction: column; gap: 3px; padding: 12px; }
-  .wx .lbl { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); }
-  .wx .v { font-family: var(--mono); font-size: 23px; font-variant-numeric: tabular-nums; }
-  .wx .v small { font-family: var(--ui); font-size: 12.5px; color: var(--muted); margin-left: 2px; }
-  .wx .sub { font-size: 11.5px; color: var(--muted); }
-  .wx.cold .v { color: #7fb6e0; } .wx.hot .v { color: var(--warn); }
+  /* generic metric groups (weather / air) */
+  .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .m { display: flex; flex-direction: column; gap: 3px; padding: 12px; }
+  .m .lbl { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
+  .m .v { font-family: var(--mono); font-size: 21px; font-variant-numeric: tabular-nums; }
+  .m .v small { font-family: var(--ui); font-size: 12px; color: var(--muted); margin-left: 2px; }
+  .m.cold .v { color: var(--cool); } .m.hot .v { color: var(--warn); }
+  .grp-title { font-size: 15px; font-weight: 650; margin: 2px 2px -2px; display: flex; align-items: center; gap: 9px; }
+  .grp-title .tag { font-size: 11px; font-weight: 600; color: var(--faint); font-family: var(--mono); }
+
+  .empty { color: var(--muted); padding: 20px; text-align: center; }
 
   footer { display: flex; align-items: center; justify-content: space-between; color: var(--faint); font-size: 11.5px; padding-top: 2px; }
   .live { display: inline-flex; align-items: center; gap: 8px; }
@@ -113,173 +124,421 @@
       <div id="verdict" class="verdict ok"><span class="dot"></span><span id="verdict-text">&mdash;</span></div>
       <div id="updated" class="updated">connecting&hellip;</div>
     </div>
+    <nav id="nav"></nav>
   </header>
-
-  <section><div class="eyebrow">Litter Boxes <span id="box-count" class="count"></span></div><div id="boxes" class="boxes"></div></section>
-  <section><div class="eyebrow">Cats <span class="count">weight &amp; 10-day trend</span></div><div id="cats" class="cats"></div></section>
-  <section><div class="eyebrow">Around the House</div><div id="weather" class="weather"></div></section>
-
-  <footer><span class="live"><span class="dot"></span><span>hearth</span></span><span>litter-robot 5 · ambient weather</span></footer>
+  <section id="view" class="view"></section>
+  <footer><span class="live"><span class="dot"></span><span>hearth</span></span><span id="src">live</span></footer>
 </div>
 
 <script>
-/* --------------------------------------------------------------------------
-   Live wiring. In production hearth serves this file and injects the API
-   token below; the page polls /api/latest (+ /api/history for sparklines),
-   paints instantly from localStorage, and REFETCHES ON WAKE — the key
-   reliability fix, since the fridge's screensaver freezes the page. If the
-   API is unreachable (e.g. this preview on claude.ai), it falls back to the
-   embedded snapshot of real values.
-   -------------------------------------------------------------------------- */
-var TOKEN = "__HEARTH_API_TOKEN__";
-if (TOKEN.indexOf("__HEARTH") === 0) TOKEN = "";   // not injected (preview)
-
+/* ------------------------------------------------------------------ *
+ * Live wiring: hearth serves this file and injects the API token. The
+ * page polls /api/latest (+ /api/history for sparklines), paints from
+ * localStorage instantly, and REFETCHES ON WAKE. Views swap via #hash
+ * (no reloads). Unreachable (e.g. claude.ai preview) -> embedded snapshot.
+ * ------------------------------------------------------------------ */
+var TOKEN = "__HEARTH_API_TOKEN__"; if (TOKEN.indexOf("__HEARTH") === 0) TOKEN = "";
 var CAT_COLOR = { ava: "var(--ava)", teddy: "var(--teddy)", helly: "var(--helly)", jame: "var(--jame)" };
 var TH = { drawerFull: 90, litterLow: 10, drawerWarn: 70, litterWarn: 25 };
 
-/* embedded fallback = a real snapshot (also the instant first paint) */
-var FALLBACK = {
-  boxes: [
-    { slug: "piano_room", name: "Piano Room", status: "Ready", litter: 100, drawer: 31, needs: false },
-    { slug: "bonus_room", name: "Bonus Room", status: "Ready", litter: 98, drawer: 49, needs: false },
-    { slug: "guest_room_5", name: "Guest Room 5", status: "Ready", litter: 77, drawer: 25, needs: false }
-  ],
-  cats: [
-    { slug: "ava", name: "Ava", weight: 7.5, visits: 133, series: [7.48,7.38,7.46,7.55,7.52,7.30,7.43,7.45,7.39,7.54] },
-    { slug: "helly", name: "Helly", weight: 9.5, visits: 170, series: [9.49,9.47,9.52,9.49,9.50,9.47,9.44,9.46,9.52,9.49] },
-    { slug: "teddy", name: "Teddy", weight: 9.6, visits: 142, series: [9.80,9.86,9.78,9.83,9.80,9.74,9.74,9.73,9.64,9.61] },
-    { slug: "jame", name: "Jame", weight: 11.8, visits: 127, series: [11.75,11.67,11.76,11.82,11.79,11.80,11.67,11.68,11.66,11.69] }
-  ],
-  weather: [
-    { lbl: "Outdoor", v: "69.1", u: "°F", sub: "feels 69 · 72%" },
-    { lbl: "Indoor", v: "67.8", u: "°F", sub: "70% humidity" },
-    { lbl: "Freezer", v: "-3.8", u: "°F", sub: "chest freezer", cls: "cold" },
-    { lbl: "Greenhouse", v: "80.1", u: "°F", sub: "soil 2%", cls: "hot" },
-    { lbl: "UV Index", v: "7", u: "", sub: "solar 741" },
-    { lbl: "Pressure", v: "29.7", u: "inHg", sub: "wind SSE" }
-  ]
+/* friendly names for known nodes; anything else is prettified from its slug */
+var NODE = {
+  outdoor: "Outdoor", indoor: "Indoor", sensor_1: "Greenhouse", sensor_4: "Greenhouse · West",
+  sensor_7: "Freezer", soil_3: "Greenhouse Soil", rain: "Rain", wind: "Wind", sun: "Sun",
+  barometer: "Barometer"
 };
+var COLD = { Freezer: 1 }, HOT = { Greenhouse: 1, "Greenhouse · West": 1 };
 
+/* embedded fallback, shaped exactly like /api/latest, so preview == live path */
+var FALLBACK = { entities: [
+  ent("whisker.ava.weight","Weight",7.5,"lb"), ent("whisker.helly.weight","Weight",9.5,"lb"),
+  ent("whisker.teddy.weight","Weight",9.6,"lb"), ent("whisker.jame.weight","Weight",11.8,"lb"),
+  box("piano_room",100,31,"Ready",false), box("bonus_room",98,49,"Ready",false), box("guest_room_5",77,25,"Ready",false),
+  ent("ambient_weather.outdoor.temperature","Temperature",69.1,"°F"), ent("ambient_weather.outdoor.feels_like","ApparentTemperature",69.1,"°F"),
+  ent("ambient_weather.outdoor.humidity","Humidity",72,"%"), ent("ambient_weather.outdoor.dew_point","DewPoint",59.7,"°F"),
+  ent("ambient_weather.indoor.temperature","Temperature",67.8,"°F"), ent("ambient_weather.indoor.humidity","Humidity",70,"%"),
+  ent("ambient_weather.sensor_7.temperature","Temperature",-3.8,"°F"), ent("ambient_weather.sensor_1.temperature","Temperature",76.3,"°F"),
+  ent("ambient_weather.sensor_4.temperature","Temperature",80.1,"°F"), ent("ambient_weather.soil_3.moisture","SoilMoisture",2,"%"),
+  ent("ambient_weather.rain.daily","PrecipitationAccumulation",0,"in"), ent("ambient_weather.rain.weekly","PrecipitationAccumulation",0,"in"),
+  ent("ambient_weather.rain.monthly","PrecipitationAccumulation",0.2,"in"), ent("ambient_weather.rain.yearly","PrecipitationAccumulation",29.2,"in"),
+  ent("ambient_weather.wind.speed","WindSpeed",4,"mph"), ent("ambient_weather.wind.gust","WindGust",9,"mph"), ent("ambient_weather.wind.bearing","WindBearing",159,"°"),
+  ent("ambient_weather.sun.uv_index","UvIndex",7,""), ent("ambient_weather.sun.solar_radiation","SolarRadiation",741,"W/m²"),
+  ent("ambient_weather.barometer.relative","Pressure",29.7,"inHg"),
+  ent("dyson.living.pm25","Pm25",4,"µg/m³"), ent("dyson.living.pm10","Pm10",8,"µg/m³"), ent("dyson.living.voc","VolatileOrganicCompounds",35,""),
+  ent("dyson.living.nitrogen_dioxide","NitrogenDioxide",4,""), ent("dyson.living.fan_speed","FanSpeed",3,""), ent("dyson.living.filter_life","FilterLife",89,"%"),
+  ent("dyson.living.temperature","Temperature",70.2,"°F"), ent("dyson.living.humidity","Humidity",48,"%")
+] };
+var FALLBACK_HIST = {
+  ava: { series: [7.48,7.38,7.46,7.55,7.52,7.30,7.43,7.45,7.39,7.54], visits: 35 },
+  helly: { series: [9.49,9.47,9.52,9.49,9.50,9.47,9.44,9.46,9.52,9.49], visits: 82 },
+  teddy: { series: [9.80,9.86,9.78,9.83,9.80,9.74,9.74,9.73,9.64,9.61], visits: 26 },
+  jame: { series: [11.75,11.67,11.76,11.82,11.79,11.80,11.67,11.68,11.66,11.69], visits: 43 }
+};
+function ent(id, cls, val, unit) { return { entity: id, class: cls, value: val, unit: unit, display: val + (unit ? " " + unit : "") }; }
+function box(slug, litter, drawer, status, needs) { return [
+  ent("whisker." + slug + ".litter_level","LitterLevel",litter,"%"),
+  ent("whisker." + slug + ".waste_drawer","WasteDrawer",drawer,"%"),
+  { entity: "whisker." + slug + ".status", class: "Status", value: status, display: status },
+  { entity: "whisker." + slug + ".needs_service", class: "Alert", value: needs, display: String(needs) }
+]; }
+FALLBACK.entities = FALLBACK.entities.reduce(function (a, x) { return a.concat(x); }, []); // flatten box() arrays
+
+/* ---------- helpers ---------- */
 function el(t, c, h) { var e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; }
-function title(slug) { return slug.split("_").map(function (w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(" "); }
-function sev(b) {
-  if (b.drawer >= TH.drawerFull || b.litter <= TH.litterLow || b.needs) return "crit";
-  if (b.drawer >= TH.drawerWarn || b.litter <= TH.litterWarn) return "warn";
-  return "good";
-}
+function pretty(seg) { return seg.split("_").map(function (w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(" "); }
+function num(x) { return x == null ? null : Number(x); }
 
-function render(data) {
-  /* verdict + boxes */
-  var boxesEl = document.getElementById("boxes"); boxesEl.innerHTML = "";
-  var attention = 0;
-  data.boxes.forEach(function (b) {
-    var sv = sev(b); if (sv !== "good") attention++;
-    var card = el("div", "card box " + (sv === "good" ? "" : sv));
-    var label = sv === "crit" ? (b.needs ? "Needs changing" : (b.litter <= TH.litterLow ? "Add litter" : "Empty drawer"))
-             : (sv === "warn" ? "Getting there" : (b.status || "Ready"));
-    card.appendChild(el("div", "box-head", '<div class="box-name">' + b.name + '</div><div class="pill ' + sv + '">' + label + '</div>'));
-    card.appendChild(meter("Litter", b.litter, b.litter <= TH.litterLow ? "var(--crit)" : (b.litter <= TH.litterWarn ? "var(--warn)" : "var(--good)")));
-    card.appendChild(meter("Drawer", b.drawer, b.drawer >= TH.drawerFull ? "var(--crit)" : (b.drawer >= TH.drawerWarn ? "var(--warn)" : "#8a7f6b")));
-    boxesEl.appendChild(card);
+/* ---------- normalize /api/latest into a model ---------- */
+function model(snap, hist) {
+  var ents = snap.entities || [], byId = {}, nodes = {};
+  ents.forEach(function (e) {
+    byId[e.entity] = e;
+    var p = e.entity.split("."); if (p.length < 3) return;
+    var src = p[0], node = p[1], chan = p.slice(2).join(".");
+    (nodes[src] = nodes[src] || {}); (nodes[src][node] = nodes[src][node] || {})[chan] = e;
   });
-  document.getElementById("box-count").textContent = attention === 0 ? "all ready" : attention + " need attention";
-  var v = document.getElementById("verdict"), vt = document.getElementById("verdict-text");
-  if (attention === 0) { v.className = "verdict ok"; vt.textContent = "All clear"; }
-  else { v.className = "verdict attn"; vt.textContent = attention + (attention === 1 ? " box needs you" : " boxes need you"); }
-
-  /* cats */
-  var catsEl = document.getElementById("cats"); catsEl.innerHTML = "";
-  data.cats.forEach(function (c) {
-    var color = CAT_COLOR[c.slug] || "var(--brass)";
-    var s = c.series && c.series.length > 1 ? c.series : [c.weight, c.weight];
-    var delta = s[s.length - 1] - s[0];
-    var dir = Math.abs(delta) < 0.12 ? "flat" : (delta < 0 ? "down" : "up");
-    var arrow = dir === "flat" ? "steady" : ((dir === "down" ? "▼ " : "▲ ") + Math.abs(delta).toFixed(1) + " lb");
-    var card = el("div", "card cat");
-    card.appendChild(el("div", "cat-head", '<span class="chip" style="background:' + color + '"></span><span class="cat-name">' + c.name + '</span>'));
-    card.appendChild(el("div", "cat-weight", '<span class="n">' + Number(c.weight).toFixed(1) + '</span><span class="u">lb</span>'));
-    card.appendChild(sparkline(s, color));
-    card.appendChild(el("div", "cat-foot", '<span class="trend ' + dir + '">' + arrow + '</span><span class="visits">' + (c.visits || 0) + ' visits</span>'));
-    catsEl.appendChild(card);
-  });
-
-  /* weather */
-  var wxEl = document.getElementById("weather"); wxEl.innerHTML = "";
-  data.weather.forEach(function (w) {
-    var card = el("div", "card wx " + (w.cls || ""));
-    card.appendChild(el("div", "lbl", w.lbl));
-    card.appendChild(el("div", "v", w.v + (w.u ? '<small>' + w.u + '</small>' : "")));
-    card.appendChild(el("div", "sub", w.sub || ""));
-    wxEl.appendChild(card);
-  });
-
-  function meter(lbl, val, color) {
-    var m = el("div", "meter");
-    m.appendChild(el("div", "meter-top", '<span class="meter-label">' + lbl + '</span><span class="meter-val">' + Math.round(val) + '%</span>'));
-    var track = el("div", "track"), fill = el("div", "fill");
-    fill.style.width = Math.max(2, Math.min(100, val)) + "%"; fill.style.background = color;
-    track.appendChild(fill); m.appendChild(track); return m;
-  }
-  function sparkline(series, color) {
-    var W = 300, H = 42, pad = 4;
-    var min = Math.min.apply(null, series), max = Math.max.apply(null, series), rng = (max - min) || 1;
-    var sx = (W - pad * 2) / (series.length - 1);
-    var pts = series.map(function (val, i) { return [pad + i * sx, pad + (1 - (val - min) / rng) * (H - pad * 2)]; });
-    var line = pts.map(function (p, i) { return (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1); }).join(" ");
-    var area = line + " L" + pts[pts.length - 1][0].toFixed(1) + " " + (H - pad) + " L" + pts[0][0].toFixed(1) + " " + (H - pad) + " Z";
-    var e = pts[pts.length - 1], id = "g" + Math.round(e[1] * 100) + series.length;
-    var svg = '<svg class="spark" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" aria-hidden="true">' +
-      '<defs><linearGradient id="' + id + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + color + '" stop-opacity="0.28"/><stop offset="1" stop-color="' + color + '" stop-opacity="0"/></linearGradient></defs>' +
-      '<path d="' + area + '" fill="url(#' + id + ')"/>' +
-      '<path d="' + line + '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' +
-      '<circle cx="' + e[0].toFixed(1) + '" cy="' + e[1].toFixed(1) + '" r="3.2" fill="' + color + '"/></svg>';
-    var d = el("div"); d.innerHTML = svg; return d.firstChild;
-  }
-}
-
-/* ---- API → normalized shape ---- */
-function normalize(snap, hist) {
-  var byId = {}; (snap.entities || []).forEach(function (e) { byId[e.entity] = e; });
-  var nodes = {}, re = /^whisker\.([a-z0-9_]+)\.(litter_level|waste_drawer|status|needs_service|weight)$/;
-  (snap.entities || []).forEach(function (e) {
-    var m = re.exec(e.entity); if (!m) return;
-    (nodes[m[1]] = nodes[m[1]] || {})[m[2]] = e;
-  });
+  /* litter + cats from whisker nodes */
   var boxes = [], cats = [];
-  Object.keys(nodes).forEach(function (slug) {
-    var n = nodes[slug];
+  Object.keys(nodes.whisker || {}).forEach(function (node) {
+    var n = nodes.whisker[node];
     if (n.litter_level || n.waste_drawer) {
-      boxes.push({ slug: slug, name: title(slug),
-        litter: n.litter_level ? Number(n.litter_level.value) : 100,
-        drawer: n.waste_drawer ? Number(n.waste_drawer.value) : 0,
+      boxes.push({ slug: node, name: pretty(node),
+        litter: n.litter_level ? num(n.litter_level.value) : 100,
+        drawer: n.waste_drawer ? num(n.waste_drawer.value) : 0,
         status: n.status ? String(n.status.value) : "Ready",
         needs: n.needs_service ? n.needs_service.value === true : false });
     } else if (n.weight) {
-      cats.push({ slug: slug, name: title(slug), weight: Number(n.weight.value),
-        visits: (hist && hist[slug] && hist[slug].visits) || 0,
-        series: (hist && hist[slug] && hist[slug].series) || null });
+      cats.push({ slug: node, name: pretty(node), weight: num(n.weight.value),
+        visits: (hist && hist[node] && hist[node].visits) || 0,
+        series: (hist && hist[node] && hist[node].series) || null });
     }
   });
   boxes.sort(function (a, b) { return a.name < b.name ? -1 : 1; });
   cats.sort(function (a, b) { return a.weight - b.weight; });
-
-  function disp(id) { return byId[id] ? byId[id].display : null; }
-  function num(id) { return byId[id] ? byId[id].value : null; }
-  var weather = [
-    { lbl: "Outdoor", v: fmt(num("ambient_weather.outdoor.temperature")), u: "°F", sub: "feels " + rnd(num("ambient_weather.outdoor.feels_like")) + " · " + rnd(num("ambient_weather.outdoor.humidity")) + "%" },
-    { lbl: "Indoor", v: fmt(num("ambient_weather.indoor.temperature")), u: "°F", sub: rnd(num("ambient_weather.indoor.humidity")) + "% humidity" },
-    { lbl: "Freezer", v: fmt(num("ambient_weather.sensor_7.temperature")), u: "°F", sub: "chest freezer", cls: "cold" },
-    { lbl: "Greenhouse", v: fmt(num("ambient_weather.sensor_4.temperature")), u: "°F", sub: "greenhouse", cls: "hot" },
-    { lbl: "UV Index", v: rnd(num("ambient_weather.sun.uv_index")), u: "", sub: disp("ambient_weather.sun.solar_radiation") ? "solar " + rnd(num("ambient_weather.sun.solar_radiation")) : "" },
-    { lbl: "Pressure", v: fmt(num("ambient_weather.barometer.relative")), u: "inHg", sub: "barometer" }
-  ].filter(function (w) { return w.v !== "—"; });
-
-  return { boxes: boxes.length ? boxes : FALLBACK.boxes, cats: cats.length ? cats : FALLBACK.cats, weather: weather.length ? weather : FALLBACK.weather };
+  return { byId: byId, nodes: nodes, boxes: boxes, cats: cats };
 }
-function fmt(x) { return x == null ? "—" : Number(x).toFixed(1); }
-function rnd(x) { return x == null ? "?" : Math.round(Number(x)); }
 
-/* ---- fetch + poll + wake-refetch ---- */
+/* ---------- view definitions ---------- */
+var VIEWS = [
+  { id: "overview", label: "Overview", show: function () { return true; }, render: renderOverview },
+  { id: "cats", label: "Cats", show: function (m) { return m.cats.length > 0; }, render: renderCats },
+  { id: "weather", label: "Weather", show: function (m) { return !!m.nodes.ambient_weather; }, render: function (m, r) { renderMetrics(m, r, "ambient_weather"); } },
+  { id: "air", label: "Air", show: function (m) { return !!m.nodes.dyson; }, render: function (m, r) { renderMetrics(m, r, "dyson"); } }
+];
+var current = (location.hash.replace(/^#\/?/, "") || "overview");
+var LAST = null; /* last model, for re-render on tab switch */
+
+function renderNav(m) {
+  var nav = document.getElementById("nav"); nav.innerHTML = "";
+  VIEWS.forEach(function (v) {
+    if (!v.show(m)) return;
+    var a = el("a", "tab" + (v.id === current ? " active" : ""), v.label);
+    a.href = "#/" + v.id;
+    nav.appendChild(a);
+  });
+}
+/* Slugs are always lowercase [a-z0-9_] (server-side slugify). Validating the
+   fragment here closes the DOM-XSS vector: a hostile #/cat/<payload> fails the
+   test and falls back to overview, so nothing from the URL reaches innerHTML. */
+var SLUG_RE = /^[a-z0-9_]+$/;
+function route() {
+  var h = location.hash.replace(/^#\/?/, ""), p = h.split("/");
+  if (p[0] === "cat" && SLUG_RE.test(p[1] || "")) return { view: "cat", slug: p[1] };
+  return { view: SLUG_RE.test(h) ? h : "overview" };
+}
+/* Escape text destined for an innerHTML template (defense in depth for values
+   that originate from a vendor API — statuses, device names). */
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  });
+}
+function paint(m) {
+  LAST = m;
+  var r = route();
+  current = r.view === "cat" ? "cats" : r.view;
+  renderNav(m);
+  var root = document.getElementById("view"); root.innerHTML = "";
+  if (r.view === "cat") { renderCatDetail(r.slug, m, root); return; }
+  (VIEWS.filter(function (x) { return x.id === current && x.show(m); })[0] || VIEWS[0]).render(m, root);
+}
+
+/* ---------- OVERVIEW ---------- */
+function renderOverview(m, root) {
+  var attention = 0;
+  var sec = el("div", "grp");
+  sec.appendChild(el("div", "eyebrow", 'Litter Boxes <span id="bc" class="count"></span>'));
+  var wrap = el("div", "boxes");
+  m.boxes.forEach(function (b) {
+    var sv = sevBox(b); if (sv !== "good") attention++;
+    var card = el("div", "card box " + (sv === "good" ? "" : sv));
+    var label = sv === "crit" ? (b.needs ? "Needs changing" : (b.litter <= TH.litterLow ? "Add litter" : "Empty drawer")) : (sv === "warn" ? "Getting there" : (b.status || "Ready"));
+    card.appendChild(el("div", "box-head", '<div class="box-name">' + esc(b.name) + '</div><div class="pill ' + sv + '">' + esc(label) + '</div>'));
+    card.appendChild(meter("Litter", b.litter, b.litter <= TH.litterLow ? "var(--crit)" : (b.litter <= TH.litterWarn ? "var(--warn)" : "var(--good)")));
+    card.appendChild(meter("Drawer", b.drawer, b.drawer >= TH.drawerFull ? "var(--crit)" : (b.drawer >= TH.drawerWarn ? "var(--warn)" : "#8a7f6b")));
+    wrap.appendChild(card);
+  });
+  sec.appendChild(wrap); root.appendChild(sec);
+
+  if (m.cats.length) {
+    var cs = el("div", "grp");
+    cs.appendChild(el("div", "eyebrow", 'Cats <span class="count">tap “Cats” for trends</span>'));
+    var cg = el("div", "cats");
+    m.cats.forEach(function (c) { cg.appendChild(catCard(c, 42, false)); });
+    cs.appendChild(cg); root.appendChild(cs);
+  }
+
+  /* weather highlights */
+  if (m.nodes.ambient_weather) {
+    var hs = el("div", "grp");
+    hs.appendChild(el("div", "eyebrow", "Around the House"));
+    var hl = el("div", "metrics");
+    [["outdoor","temperature","Outdoor"],["indoor","temperature","Indoor"],["sensor_7","temperature","Freezer"],
+     ["sensor_4","temperature","Greenhouse"],["sun","uv_index","UV Index"],["barometer","relative","Pressure"]].forEach(function (t) {
+      var e = m.byId["ambient_weather." + t[0] + "." + t[1]]; if (!e) return;
+      hl.appendChild(metric(t[2], e, COLD[t[2]] ? "cold" : (HOT[t[2]] ? "hot" : "")));
+    });
+    hs.appendChild(hl); root.appendChild(hs);
+  }
+
+  document.getElementById("bc").textContent = attention === 0 ? "all ready" : attention + " need attention";
+  setVerdict(attention);
+}
+
+/* ---------- CATS (detail) ---------- */
+function renderCats(m, root) {
+  m.cats.forEach(function (c) {
+    var color = CAT_COLOR[c.slug] || "var(--brass)";
+    var s = c.series && c.series.length > 1 ? c.series : [c.weight, c.weight];
+    var lo = Math.min.apply(null, s), hi = Math.max.apply(null, s);
+    var delta = s[s.length - 1] - s[0];
+    var dir = Math.abs(delta) < 0.12 ? "flat" : (delta < 0 ? "down" : "up");
+    var arrow = dir === "flat" ? "steady over 10 days" : ((dir === "down" ? "▼ " : "▲ ") + Math.abs(delta).toFixed(1) + " lb / 10 days");
+    var card = el("div", "card cat cat-detail");
+    card.appendChild(el("div", "cat-head", '<span class="chip" style="background:' + color + '"></span><span class="cat-name">' + c.name + '</span>'));
+    card.appendChild(el("div", "cat-weight", '<span class="n">' + Number(c.weight).toFixed(1) + '</span><span class="u">lb now</span>'));
+    card.appendChild(sparkline(s, color, 88));
+    card.appendChild(el("div", "minmax", '<span>low <b>' + lo.toFixed(1) + '</b></span><span>high <b>' + hi.toFixed(1) + '</b></span><span>' + c.visits + ' visits / 10d</span>'));
+    card.appendChild(el("div", "cat-foot", '<span class="trend ' + dir + '">' + arrow + '</span><span class="visits">full history ›</span>'));
+    linkToCat(card, c.slug);
+    root.appendChild(card);
+  });
+  setVerdict(countAttention(m));
+}
+
+/* ---------- METRICS (weather / air) — group by node, show all channels ---------- */
+function renderMetrics(m, root, src) {
+  var group = m.nodes[src] || {};
+  var order = Object.keys(group).sort(function (a, b) {
+    return (NODE[a] || pretty(a)) < (NODE[b] || pretty(b)) ? -1 : 1;
+  });
+  if (!order.length) { root.appendChild(el("div", "empty", "No data yet.")); return; }
+  order.forEach(function (node) {
+    var label = NODE[node] || pretty(node);
+    var g = el("div", "grp");
+    g.appendChild(el("div", "grp-title", label + '<span class="tag">' + src + "." + node + "</span>"));
+    var mg = el("div", "card"); var grid = el("div", "metrics");
+    var chans = group[node];
+    Object.keys(chans).sort().forEach(function (ch) {
+      var e = chans[ch];
+      if (e.class === "BatteryLow" || e.class === "Timestamp") return; /* skip noise */
+      grid.appendChild(metric(pretty(ch), e, COLD[label] ? "cold" : (HOT[label] ? "hot" : "")));
+    });
+    mg.appendChild(grid); g.appendChild(mg); root.appendChild(g);
+  });
+  setVerdict(countAttention(m));
+}
+
+/* ---------- shared bits ---------- */
+function sevBox(b) {
+  if (b.drawer >= TH.drawerFull || b.litter <= TH.litterLow || b.needs) return "crit";
+  if (b.drawer >= TH.drawerWarn || b.litter <= TH.litterWarn) return "warn";
+  return "good";
+}
+function countAttention(m) { var n = 0; m.boxes.forEach(function (b) { if (sevBox(b) !== "good") n++; }); return n; }
+function setVerdict(attention) {
+  var v = document.getElementById("verdict"), vt = document.getElementById("verdict-text");
+  if (attention === 0) { v.className = "verdict ok"; vt.textContent = "All clear"; }
+  else { v.className = "verdict attn"; vt.textContent = attention + (attention === 1 ? " box needs you" : " boxes need you"); }
+}
+function meter(lbl, val, color) {
+  var m = el("div", "meter");
+  m.appendChild(el("div", "meter-top", '<span class="meter-label">' + lbl + '</span><span class="meter-val">' + Math.round(val) + '%</span>'));
+  var track = el("div", "track"), fill = el("div", "fill");
+  fill.style.width = Math.max(2, Math.min(100, val)) + "%"; fill.style.background = color;
+  track.appendChild(fill); m.appendChild(track); return m;
+}
+function metric(lbl, e, cls) {
+  var card = el("div", "m " + (cls || ""));
+  card.appendChild(el("div", "lbl", lbl));
+  var val = e.unit
+    ? '<span>' + esc(fmtNum(e.value)) + '</span><small>' + esc(e.unit) + '</small>'
+    : esc(String(e.value));
+  card.appendChild(el("div", "v", val));
+  return card;
+}
+function fmtNum(v) { var n = Number(v); return isNaN(n) ? String(v) : (Math.abs(n) >= 100 ? Math.round(n) : n.toFixed(1)); }
+function catCard(c, sparkH, detail) {
+  var color = CAT_COLOR[c.slug] || "var(--brass)";
+  var s = c.series && c.series.length > 1 ? c.series : [c.weight, c.weight];
+  var delta = s[s.length - 1] - s[0];
+  var dir = Math.abs(delta) < 0.12 ? "flat" : (delta < 0 ? "down" : "up");
+  var arrow = dir === "flat" ? "steady" : ((dir === "down" ? "▼ " : "▲ ") + Math.abs(delta).toFixed(1) + " lb");
+  var card = el("div", "card cat");
+  card.appendChild(el("div", "cat-head", '<span class="chip" style="background:' + color + '"></span><span class="cat-name">' + c.name + '</span>'));
+  card.appendChild(el("div", "cat-weight", '<span class="n">' + Number(c.weight).toFixed(1) + '</span><span class="u">lb</span>'));
+  card.appendChild(sparkline(s, color, sparkH));
+  card.appendChild(el("div", "cat-foot", '<span class="trend ' + dir + '">' + arrow + '</span><span class="visits">' + (c.visits || 0) + ' ›</span>'));
+  linkToCat(card, c.slug);
+  return card;
+}
+/* make a cat card tap through to its detail page */
+function linkToCat(card, slug) {
+  card.style.cursor = "pointer";
+  card.setAttribute("role", "link");
+  card.setAttribute("tabindex", "0");
+  card.addEventListener("click", function () { location.hash = "#/cat/" + slug; });
+  card.addEventListener("keydown", function (e) { if (e.key === "Enter") location.hash = "#/cat/" + slug; });
+}
+function sparkline(series, color, H) {
+  var W = 300, pad = 4;
+  var min = Math.min.apply(null, series), max = Math.max.apply(null, series), rng = (max - min) || 1;
+  var sx = (W - pad * 2) / (series.length - 1);
+  var pts = series.map(function (v, i) { return [pad + i * sx, pad + (1 - (v - min) / rng) * (H - pad * 2)]; });
+  var line = pts.map(function (p, i) { return (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1); }).join(" ");
+  var area = line + " L" + pts[pts.length - 1][0].toFixed(1) + " " + (H - pad) + " L" + pts[0][0].toFixed(1) + " " + (H - pad) + " Z";
+  var e = pts[pts.length - 1], id = "g" + Math.round(e[1] * 100) + series.length + Math.round(H);
+  var svg = '<svg class="spark" style="height:' + H + 'px" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" aria-hidden="true">' +
+    '<defs><linearGradient id="' + id + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + color + '" stop-opacity="0.28"/><stop offset="1" stop-color="' + color + '" stop-opacity="0"/></linearGradient></defs>' +
+    '<path d="' + area + '" fill="url(#' + id + ')"/><path d="' + line + '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' +
+    '<circle cx="' + e[0].toFixed(1) + '" cy="' + e[1].toFixed(1) + '" r="3.2" fill="' + color + '"/></svg>';
+  var d = el("div"); d.innerHTML = svg; return d.firstChild;
+}
+
+/* ---------- per-cat DETAIL view (#/cat/<slug>) ---------- */
+var VISITS_CACHE = {};
+function renderCatDetail(slug, m, root) {
+  var cat = (m.cats.filter(function (c) { return c.slug === slug; })[0]) ||
+    { slug: slug, name: pretty(slug), weight: 0, series: null, visits: 0 };
+  var color = CAT_COLOR[slug] || "var(--brass)";
+
+  var back = el("a", "tab", "‹ All cats"); back.href = "#/cats"; root.appendChild(back);
+  var head = el("div", "card cat");
+  head.appendChild(el("div", "cat-head", '<span class="chip" style="background:' + color + '"></span><span class="cat-name">' + esc(cat.name) + '</span>'));
+  head.appendChild(el("div", "cat-weight", '<span class="n">' + Number(cat.weight).toFixed(1) + '</span><span class="u">lb now</span>'));
+  root.appendChild(head);
+
+  var body = el("div", "grp");
+  body.appendChild(el("div", "empty", "Loading " + cat.name + "’s history…"));
+  root.appendChild(body);
+
+  function draw(v) { body.innerHTML = ""; drawCatCharts(cat, color, v, body); }
+  if (VISITS_CACHE[slug]) { draw(VISITS_CACHE[slug]); return; }
+  apiGet("/api/visits?cat=" + encodeURIComponent(slug) + "&days=30")
+    .then(function (v) { VISITS_CACHE[slug] = v; draw(v); })
+    .catch(function () { var v = synthVisits(cat); VISITS_CACHE[slug] = v; draw(v); });
+}
+function titleCase(s) { return String(s).split(" ").map(function (w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(" "); }
+
+function drawCatCharts(cat, color, visits, root) {
+  if (!visits.length) { root.appendChild(el("div", "empty", "No visits recorded yet.")); return; }
+  var map = {};
+  visits.forEach(function (v) {
+    var d = String(v.ts).slice(0, 10), e = map[d] || (map[d] = { d: d, w: [], urine: 0, feces: 0, n: 0 });
+    if (typeof v.weight === "number") e.w.push(v.weight);
+    e.n++;
+    if (v.waste === "Urine") e.urine++; else if (v.waste === "Feces") e.feces++;
+  });
+  var days = Object.keys(map).sort().map(function (d) {
+    var e = map[d], ws = e.w.slice().sort(function (a, b) { return a - b; });
+    e.med = ws.length ? ws[Math.floor(ws.length / 2)] : 0; e.min = ws.length ? ws[0] : 0; e.max = ws.length ? ws[ws.length - 1] : 0;
+    return e;
+  });
+  var urine = visits.filter(function (v) { return v.waste === "Urine"; }).length;
+  var feces = visits.filter(function (v) { return v.waste === "Feces"; }).length;
+  var bx = {}; visits.forEach(function (v) { bx[v.box_name] = (bx[v.box_name] || 0) + 1; });
+  var boxes = Object.keys(bx).map(function (k) { return { label: titleCase(k), value: bx[k] }; }).sort(function (a, b) { return b.value - a.value; });
+
+  var lo = Math.min.apply(null, days.map(function (d) { return d.min || 99; })), hi = Math.max.apply(null, days.map(function (d) { return d.max; }));
+  var stat = el("div", "minmax");
+  stat.innerHTML = '<span>range <b>' + lo.toFixed(1) + '–' + hi.toFixed(1) + ' lb</b></span><span>' + visits.length + ' visits / ' + days.length + 'd</span><span>' + urine + ' pees · ' + feces + ' poops</span>';
+  root.appendChild(wrapCard(stat));
+  root.appendChild(chartSection("Weight — trend & daily range", weightBandSVG(days, color)));
+  root.appendChild(chartSection("Visits per day", stackSVG(days),
+    '<span style="color:var(--cool)">■ pee</span><span style="color:var(--jame)">■ poop</span>'));
+  root.appendChild(chartSection("Favorite boxes", hbarsHTML(boxes, color)));
+}
+
+function chartSection(title, node, caption) {
+  var g = el("div", "grp");
+  g.appendChild(el("div", "grp-title", title));
+  var card = el("div", "card"); card.appendChild(node);
+  if (caption) card.appendChild(el("div", "minmax", caption));
+  g.appendChild(card); return g;
+}
+function wrapCard(node) { var c = el("div", "card"); c.appendChild(node); return c; }
+function svg(W, H, cssH, inner) {
+  var d = el("div");
+  d.innerHTML = '<svg style="width:100%;height:' + cssH + 'px;display:block" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" aria-hidden="true">' + inner + '</svg>';
+  return d.firstChild;
+}
+/* weight: min–max band + median line */
+function weightBandSVG(days, color) {
+  var W = 300, H = 96, pad = 8;
+  var lo = Math.min.apply(null, days.map(function (d) { return d.min; })), hi = Math.max.apply(null, days.map(function (d) { return d.max; })), rng = (hi - lo) || 1;
+  var n = days.length, sx = n > 1 ? (W - pad * 2) / (n - 1) : 0;
+  function X(i) { return pad + i * sx; } function Y(v) { return pad + (1 - (v - lo) / rng) * (H - pad * 2); }
+  var top = days.map(function (d, i) { return (i ? "L" : "M") + X(i).toFixed(1) + " " + Y(d.max).toFixed(1); }).join(" ");
+  var bot = days.map(function (d, i) { return "L" + X(i).toFixed(1) + " " + Y(d.min).toFixed(1); }).reverse().join(" ");
+  var line = days.map(function (d, i) { return (i ? "L" : "M") + X(i).toFixed(1) + " " + Y(d.med).toFixed(1); }).join(" ");
+  var e = days[n - 1];
+  return svg(W, H, H,
+    '<path d="' + top + " " + bot + ' Z" fill="' + color + '" fill-opacity="0.16"/>' +
+    '<path d="' + line + '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' +
+    '<circle cx="' + X(n - 1).toFixed(1) + '" cy="' + Y(e.med).toFixed(1) + '" r="3.2" fill="' + color + '"/>');
+}
+/* daily visits: urine (base, cool) + feces (top, gold) */
+function stackSVG(days) {
+  var W = 300, H = 96, pad = 8;
+  var maxN = Math.max.apply(null, days.map(function (d) { return d.n; })) || 1;
+  var n = days.length, step = (W - pad * 2) / n, bw = Math.max(3, step - 2);
+  var bars = days.map(function (d, i) {
+    var x = pad + i * step, uH = (d.urine / maxN) * (H - pad * 2), fH = (d.feces / maxN) * (H - pad * 2);
+    var yU = H - pad - uH, yF = yU - fH;
+    return '<rect x="' + x.toFixed(1) + '" y="' + yU.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(0, uH).toFixed(1) + '" fill="var(--cool)"/>' +
+      '<rect x="' + x.toFixed(1) + '" y="' + yF.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(0, fH).toFixed(1) + '" fill="var(--jame)"/>';
+  }).join("");
+  return svg(W, H, H, bars);
+}
+/* box usage as HTML bars (SVG text distorts under non-uniform scaling) */
+function hbarsHTML(rows, color) {
+  var max = Math.max.apply(null, rows.map(function (r) { return r.value; })) || 1;
+  var wrap = el("div", "grp"); wrap.style.gap = "9px";
+  rows.forEach(function (r) {
+    var row = el("div"); row.style.cssText = "display:flex;align-items:center;gap:10px;";
+    var lbl = el("div"); lbl.textContent = r.label; lbl.style.cssText = "width:120px;font-size:13px;color:var(--muted);";
+    var track = el("div"); track.style.cssText = "flex:1;height:14px;background:var(--bg-3);border-radius:5px;overflow:hidden;";
+    var fill = el("div"); fill.style.cssText = "height:100%;width:" + Math.max(3, (r.value / max) * 100) + "%;background:" + color + ";opacity:.85;";
+    track.appendChild(fill);
+    var val = el("div"); val.textContent = String(r.value); val.style.cssText = "width:36px;text-align:right;font-family:var(--mono);font-size:13px;";
+    row.appendChild(lbl); row.appendChild(track); row.appendChild(val); wrap.appendChild(row);
+  });
+  return wrap;
+}
+/* preview-only: synthesize plausible visits when /api/visits is unreachable */
+function synthVisits(cat) {
+  var s = cat.series || [cat.weight || 9], per = Math.max(1, Math.round((cat.visits || 30) / s.length)), out = [], boxes = ["piano room", "bonus room", "guest room 5"];
+  s.forEach(function (w, di) {
+    for (var i = 0; i < per; i++) {
+      var hh = (7 + i) % 24; hh = (hh < 10 ? "0" : "") + hh;
+      out.push({ ts: "2026-07-" + (17 + di) + "T" + hh + ":00:00Z", box_name: boxes[Math.floor(Math.random() * 3)],
+        weight: w + (Math.random() - 0.5) * 0.2, waste: Math.random() < 0.8 ? "Urine" : "Feces", duration: 40 + Math.floor(Math.random() * 40) });
+    }
+  });
+  return out;
+}
+
+/* ---------- fetch + poll + wake ---------- */
 function apiGet(path) {
   var opt = TOKEN ? { headers: { Authorization: "Bearer " + TOKEN } } : {};
   return fetch(path, opt).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); });
@@ -287,38 +546,35 @@ function apiGet(path) {
 function pull() {
   return Promise.all([apiGet("/api/latest"), apiGet("/api/history?days=10").catch(function () { return null; })])
     .then(function (res) {
-      var data = normalize(res[0], res[1]);
-      render(data);
-      try { localStorage.setItem("hearth.snap", JSON.stringify(data)); } catch (e) {}
+      var m = model(res[0], res[1]); paint(m);
+      try { localStorage.setItem("hearth.snap", JSON.stringify(res[0])); localStorage.setItem("hearth.hist", JSON.stringify(res[1] || {})); } catch (e) {}
       stamp(true);
     })
-    .catch(function () { stamp(false); });   /* unreachable (e.g. preview): keep last paint */
+    .catch(function () { stamp(false); });
 }
 function stamp(ok) {
-  var d = new Date(), hh = String(d.getHours()).length < 2 ? "0" + d.getHours() : d.getHours(), mm = String(d.getMinutes()).length < 2 ? "0" + d.getMinutes() : d.getMinutes();
-  document.getElementById("updated").textContent = (ok ? "updated " : "offline · last ") + hh + ":" + mm;
+  var d = new Date(), hh = d.getHours() < 10 ? "0" + d.getHours() : d.getHours(), mm = d.getMinutes() < 10 ? "0" + d.getMinutes() : d.getMinutes();
+  document.getElementById("updated").textContent = (ok ? "updated " : "offline · ") + hh + ":" + mm;
+  document.getElementById("src").textContent = ok ? "live · polling 12s" : "offline — showing last data";
 }
-
-/* clock */
 function tick() {
-  var d = new Date(), h = d.getHours(), m = d.getMinutes(), ap = h >= 12 ? "PM" : "AM", hh = (h % 12) || 12;
-  document.getElementById("clock").textContent = hh + ":" + (m < 10 ? "0" + m : m) + " " + ap;
+  var d = new Date(), h = d.getHours(), mi = d.getMinutes(), ap = h >= 12 ? "PM" : "AM", hh = (h % 12) || 12;
+  document.getElementById("clock").textContent = hh + ":" + (mi < 10 ? "0" + mi : mi) + " " + ap;
   document.getElementById("date").textContent = d.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 }
 
-/* boot: instant paint from cache/fallback, then go live */
+window.addEventListener("hashchange", function () { if (LAST) paint(LAST); });
+
 (function boot() {
-  var seed = FALLBACK;
-  try { var s = localStorage.getItem("hearth.snap"); if (s) seed = JSON.parse(s); } catch (e) {}
-  render(seed);
+  var snap = FALLBACK, hist = FALLBACK_HIST;
+  try { var s = localStorage.getItem("hearth.snap"); if (s) snap = JSON.parse(s); var h = localStorage.getItem("hearth.hist"); if (h) hist = JSON.parse(h); } catch (e) {}
+  paint(model(snap, hist));
   tick(); setInterval(tick, 10000);
   pull();
-  var timer = setInterval(function () { if (!document.hidden) pull(); }, 12000);
-  /* wake-refetch: the #1 reliability fix — the panel freezes while asleep */
+  setInterval(function () { if (!document.hidden) pull(); }, 12000);
   document.addEventListener("visibilitychange", function () { if (!document.hidden) pull(); });
   window.addEventListener("focus", pull);
   window.addEventListener("pageshow", pull);
-  /* memory backstop: reload only while the screen is asleep, never under a finger */
   setInterval(function () { if (document.hidden) location.reload(); }, 20 * 60 * 1000);
 })();
 </script>

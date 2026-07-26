@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use axum::Router;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Json, Response};
 use axum::routing::get;
@@ -66,6 +66,7 @@ pub async fn serve(
         .route("/", get(dashboard_page))
         .route("/api/latest", get(latest))
         .route("/api/history", get(history))
+        .route("/api/visits", get(visits))
         .route("/healthz", get(healthz))
         .with_state(state);
 
@@ -104,6 +105,35 @@ async fn history(State(state): State<AppState>, headers: HeaderMap) -> Response 
         None => Default::default(),
     };
     Json(series).into_response()
+}
+
+/// Query for `/api/visits`: the cat slug and how many days back to include.
+#[derive(serde::Deserialize)]
+struct VisitsQuery {
+    cat: String,
+    #[serde(default = "default_visit_days")]
+    days: usize,
+}
+fn default_visit_days() -> usize {
+    30
+}
+
+/// `GET /api/visits?cat=<slug>&days=<n>` — every plausible visit for one cat
+/// over the last `n` days (capped at 60), for the per-cat detail page's charts.
+/// The page slices these into weight / waste / box / activity views itself.
+async fn visits(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<VisitsQuery>,
+) -> Response {
+    if !authorized(&state.token, &headers) {
+        return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+    }
+    let out = match &state.history_dir {
+        Some(dir) => whisker::history::cat_visits(dir, &q.cat, q.days.min(60)),
+        None => Vec::new(),
+    };
+    Json(out).into_response()
 }
 
 /// `GET /healthz` — liveness only (no auth): the process is up and serving.
