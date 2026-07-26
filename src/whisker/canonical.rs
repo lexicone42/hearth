@@ -160,8 +160,10 @@ fn node_slug(primary: &str, fallback: &str) -> String {
 }
 
 /// Lowercase, non-alphanumeric -> `_`, collapse repeats, trim leading/trailing
-/// `_`. "piano room" -> "piano_room".
-fn slugify(s: &str) -> String {
+/// `_`. "piano room" -> "piano_room". `pub(crate)` so the history archive can
+/// derive the same cat slug the pet observations use (keeps the API's node ids
+/// and the `/api/history` keys aligned).
+pub(crate) fn slugify(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut pending_sep = false;
     for ch in s.chars() {

@@ -16,7 +16,7 @@
 //! and the `whisker-history-import` subcommand banks a previously-saved 30-day
 //! snapshot. The `eventId` set makes the two safe to overlap.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -198,6 +198,74 @@ fn restrict_to_owner(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// A per-cat weight trend for the dashboard sparklines: the daily-median weight
+/// (lb) over the most recent days that have data, plus the visit count in that
+/// window. Serialized to JSON for `GET /api/history`.
+#[derive(Debug, Clone, Serialize)]
+pub struct CatWeightSeries {
+    pub series: Vec<f64>,
+    pub visits: usize,
+}
+
+/// Build a per-cat daily-median weight series over the most recent `max_days`
+/// days with data, keyed by cat slug (the SAME slug the pet observations use, so
+/// the dashboard can join it to `whisker.<slug>.weight`). Implausible reads
+/// (outside 3..=30 lb) are dropped as sensor noise. Best-effort: a missing or
+/// unreadable archive yields an empty map, never an error — the dashboard then
+/// falls back to its embedded series.
+pub fn weight_series(dir: impl AsRef<Path>, max_days: usize) -> BTreeMap<String, CatWeightSeries> {
+    let path = dir.as_ref().join(VisitStore::FILE_NAME);
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return BTreeMap::new();
+    };
+
+    // slug -> "YYYY-MM-DD" -> weights that day
+    let mut by_cat: BTreeMap<String, BTreeMap<String, Vec<f64>>> = BTreeMap::new();
+    for line in text.lines() {
+        let Ok(rec) = serde_json::from_str::<VisitRecord>(line) else {
+            continue;
+        };
+        let Some(cat) = rec.cat.as_deref() else {
+            continue;
+        };
+        if !(3.0..=30.0).contains(&rec.weight_lb) || rec.ts.len() < 10 {
+            continue;
+        }
+        let slug = crate::whisker::canonical::slugify(cat);
+        by_cat
+            .entry(slug)
+            .or_default()
+            .entry(rec.ts[..10].to_string())
+            .or_default()
+            .push(rec.weight_lb);
+    }
+
+    let mut out = BTreeMap::new();
+    for (slug, days) in by_cat {
+        // Keys sort ascending; take the most recent `max_days`, back to order.
+        let mut recent: Vec<(&String, &Vec<f64>)> = days.iter().rev().take(max_days).collect();
+        recent.reverse();
+        let series: Vec<f64> = recent.iter().map(|(_, ws)| median(ws)).collect();
+        let visits: usize = recent.iter().map(|(_, ws)| ws.len()).sum();
+        if !series.is_empty() {
+            out.insert(slug, CatWeightSeries { series, visits });
+        }
+    }
+    out
+}
+
+/// Median of a non-empty slice.
+fn median(xs: &[f64]) -> f64 {
+    let mut v = xs.to_vec();
+    v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let n = v.len();
+    if n % 2 == 1 {
+        v[n / 2]
+    } else {
+        (v[n / 2 - 1] + v[n / 2]) / 2.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -351,5 +419,67 @@ mod tests {
         assert_eq!(store.len(), 1);
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    fn rec(id: &str, ts: &str, cat: &str, w: f64) -> VisitRecord {
+        VisitRecord {
+            event_id: id.to_string(),
+            ts: ts.to_string(),
+            serial: "LR5-TEST-000000".to_string(),
+            box_name: "test room".to_string(),
+            pet_id: Some("PET-TEST-1".to_string()),
+            cat: Some(cat.to_string()),
+            weight_lb: w,
+            waste_type: None,
+            waste_weight: None,
+            duration_s: None,
+        }
+    }
+
+    #[test]
+    fn weight_series_daily_median_drops_noise_and_keys_by_slug() {
+        let dir = unique_dir("series");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut store = VisitStore::open(&dir).unwrap();
+        store
+            .append_new(vec![
+                // Day 1: odd count -> median is the middle element (exact f64).
+                rec("E1", "2026-01-01T08:00:00Z", "Fixture One", 9.2),
+                rec("E2", "2026-01-01T12:00:00Z", "Fixture One", 9.4),
+                rec("E3", "2026-01-01T20:00:00Z", "Fixture One", 9.6),
+                // Day 2: one plausible read + one implausible (dropped as noise).
+                rec("E4", "2026-01-02T09:00:00Z", "Fixture One", 9.6),
+                rec("E5", "2026-01-02T09:30:00Z", "Fixture One", 0.02),
+                // A second cat, and a null-cat record (skipped).
+                rec("E6", "2026-01-02T10:00:00Z", "Fixture Two", 7.0),
+            ])
+            .unwrap();
+
+        let s = weight_series(&dir, 10);
+        let one = s.get("fixture_one").expect("fixture_one keyed by slug");
+        assert_eq!(one.series, vec![9.4, 9.6]); // day-1 median, day-2 median
+        assert_eq!(one.visits, 4); // 3 on day 1 + 1 plausible on day 2 (0.02 dropped)
+        assert!(s.contains_key("fixture_two"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn weight_series_missing_archive_is_empty() {
+        let dir = unique_dir("absent");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(weight_series(&dir, 10).is_empty());
+    }
+
+    /// Verify the sparkline data against the REAL local archive (CWD
+    /// `data/whisker`). Ignored by default; run with:
+    ///   cargo test whisker::history::tests::real_weight_series -- --ignored --nocapture
+    #[test]
+    #[ignore = "reads the real local data/whisker archive"]
+    fn real_weight_series() {
+        let s = weight_series("data/whisker", 10);
+        assert!(!s.is_empty(), "expected cats in the real archive");
+        for (slug, cs) in &s {
+            eprintln!("{slug}: {:?}  ({} visits/10d)", cs.series, cs.visits);
+        }
     }
 }
