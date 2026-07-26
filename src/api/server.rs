@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use axum::Router;
-use axum::extract::{Query, State};
+use axum::extract::{Path as UrlPath, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Json, Response};
 use axum::routing::get;
@@ -34,6 +34,8 @@ struct AppState {
     token: Option<String>,
     dashboard: std::sync::Arc<str>,
     history_dir: Option<PathBuf>,
+    /// Directory of cached cat photos served at `/assets/cats/<name>`.
+    assets_dir: PathBuf,
 }
 
 /// Bind and serve until the process exits. Spawned as its own task from
@@ -46,6 +48,7 @@ pub async fn serve(
     store: StateStore,
     system: UnitSystem,
     history_dir: Option<PathBuf>,
+    assets_dir: PathBuf,
 ) -> Result<()> {
     // Inject the token into the page once, up front (never logged, never stored).
     let dashboard: std::sync::Arc<str> = DASHBOARD_TEMPLATE
@@ -61,12 +64,14 @@ pub async fn serve(
         token: config.token.clone(),
         dashboard,
         history_dir,
+        assets_dir,
     };
     let app = Router::new()
         .route("/", get(dashboard_page))
         .route("/api/latest", get(latest))
         .route("/api/history", get(history))
         .route("/api/visits", get(visits))
+        .route("/assets/cats/{name}", get(cat_photo))
         .route("/healthz", get(healthz))
         .with_state(state);
 
@@ -136,6 +141,50 @@ async fn visits(
     Json(out).into_response()
 }
 
+/// `GET /assets/cats/{name}` — a cached cat photo from the gitignored
+/// `data/cats/` dir, served same-origin so the dashboard stays self-contained
+/// (no external host, works even if the source site is down). Path-safe: only a
+/// bare `[A-Za-z0-9._-]` filename (no `..`, no separators) is accepted.
+/// Unauthenticated — it's a display asset, like the page shell. 404 when absent.
+async fn cat_photo(State(state): State<AppState>, UrlPath(name): UrlPath<String>) -> Response {
+    if !safe_asset_name(&name) {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    // Small, browser-cached (24h) file — a blocking read is fine here.
+    match std::fs::read(state.assets_dir.join(&name)) {
+        Ok(bytes) => {
+            let ct = if name.ends_with(".webp") {
+                "image/webp"
+            } else if name.ends_with(".png") {
+                "image/png"
+            } else if name.ends_with(".jpg") || name.ends_with(".jpeg") {
+                "image/jpeg"
+            } else {
+                "application/octet-stream"
+            };
+            (
+                [
+                    (header::CONTENT_TYPE, ct),
+                    (header::CACHE_CONTROL, "public, max-age=86400"),
+                ],
+                bytes,
+            )
+                .into_response()
+        }
+        Err(_) => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// A safe cat-photo filename: non-empty, no `..`, and only `[A-Za-z0-9._-]` —
+/// so a request can never escape the assets dir (no `/`, no traversal).
+fn safe_asset_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains("..")
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
 /// `GET /healthz` — liveness only (no auth): the process is up and serving.
 async fn healthz() -> &'static str {
     "ok"
@@ -180,6 +229,17 @@ mod tests {
         assert!(!authorized(&expected, &headers_with(Some("Bearer wrong"))));
         assert!(!authorized(&expected, &headers_with(Some("s3cret"))));
         assert!(!authorized(&expected, &headers_with(None)));
+    }
+
+    #[test]
+    fn asset_names_reject_traversal_and_separators() {
+        assert!(safe_asset_name("teddy.webp"));
+        assert!(safe_asset_name("guest_room_5.webp"));
+        assert!(!safe_asset_name("")); // empty
+        assert!(!safe_asset_name("../config.toml")); // traversal
+        assert!(!safe_asset_name("a/b.webp")); // separator
+        assert!(!safe_asset_name("..")); // traversal
+        assert!(!safe_asset_name("x\0.webp")); // control char
     }
 
     #[test]

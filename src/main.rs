@@ -171,9 +171,13 @@ async fn run(
                 .whisker
                 .as_ref()
                 .map(|_| whisker_history_dir(&config));
+            // Cached cat photos for the dashboard gallery (gitignored data/cats/).
+            let assets_dir = PathBuf::from("data/cats");
             let (api_cfg, store, system) = (api_cfg.clone(), store.clone(), config.unit_system);
             async move {
-                if let Err(e) = api::server::serve(api_cfg, store, system, history_dir).await {
+                if let Err(e) =
+                    api::server::serve(api_cfg, store, system, history_dir, assets_dir).await
+                {
                     error!(error = ?e, "api server exited");
                 }
             }

@@ -222,6 +222,7 @@ function model(snap, hist) {
 var VIEWS = [
   { id: "overview", label: "Overview", show: function () { return true; }, render: renderOverview },
   { id: "cats", label: "Cats", show: function (m) { return m.cats.length > 0; }, render: renderCats },
+  { id: "gallery", label: "Gallery", show: function (m) { return m.cats.length > 0; }, render: renderGallery },
   { id: "weather", label: "Weather", show: function (m) { return !!m.nodes.ambient_weather; }, render: function (m, r) { renderMetrics(m, r, "ambient_weather"); } },
   { id: "air", label: "Air", show: function (m) { return !!m.nodes.dyson; }, render: function (m, r) { renderMetrics(m, r, "dyson"); } }
 ];
@@ -315,7 +316,7 @@ function renderCats(m, root) {
     var dir = Math.abs(delta) < 0.12 ? "flat" : (delta < 0 ? "down" : "up");
     var arrow = dir === "flat" ? "steady over 10 days" : ((dir === "down" ? "▼ " : "▲ ") + Math.abs(delta).toFixed(1) + " lb / 10 days");
     var card = el("div", "card cat cat-detail");
-    card.appendChild(el("div", "cat-head", '<span class="chip" style="background:' + color + '"></span><span class="cat-name">' + c.name + '</span>'));
+    card.appendChild(catHead(c.slug, c.name, color, 30));
     card.appendChild(el("div", "cat-weight", '<span class="n">' + Number(c.weight).toFixed(1) + '</span><span class="u">lb now</span>'));
     card.appendChild(sparkline(s, color, 88));
     card.appendChild(el("div", "minmax", '<span>low <b>' + lo.toFixed(1) + '</b></span><span>high <b>' + hi.toFixed(1) + '</b></span><span>' + c.visits + ' visits / 10d</span>'));
@@ -385,7 +386,7 @@ function catCard(c, sparkH, detail) {
   var dir = Math.abs(delta) < 0.12 ? "flat" : (delta < 0 ? "down" : "up");
   var arrow = dir === "flat" ? "steady" : ((dir === "down" ? "▼ " : "▲ ") + Math.abs(delta).toFixed(1) + " lb");
   var card = el("div", "card cat");
-  card.appendChild(el("div", "cat-head", '<span class="chip" style="background:' + color + '"></span><span class="cat-name">' + c.name + '</span>'));
+  card.appendChild(catHead(c.slug, c.name, color, 30));
   card.appendChild(el("div", "cat-weight", '<span class="n">' + Number(c.weight).toFixed(1) + '</span><span class="u">lb</span>'));
   card.appendChild(sparkline(s, color, sparkH));
   card.appendChild(el("div", "cat-foot", '<span class="trend ' + dir + '">' + arrow + '</span><span class="visits">' + (c.visits || 0) + ' ›</span>'));
@@ -415,6 +416,60 @@ function sparkline(series, color, H) {
   var d = el("div"); d.innerHTML = svg; return d.firstChild;
 }
 
+/* ---------- cat photos (served same-origin from hearth; initial-circle fallback) ---------- */
+function avatar(slug, name, color, size) {
+  var wrap = el("div");
+  wrap.style.cssText = "width:" + size + "px;height:" + size + "px;border-radius:50%;overflow:hidden;flex:none;background:" + color + ";display:flex;align-items:center;justify-content:center;";
+  var img = document.createElement("img");
+  img.alt = name; img.src = "/assets/cats/" + slug + ".webp";
+  img.style.cssText = "width:100%;height:100%;object-fit:cover;display:block;";
+  img.onerror = function () {
+    if (img.parentNode) wrap.removeChild(img);
+    var init = el("div", null, esc((name || "?").charAt(0).toUpperCase()));
+    init.style.cssText = "color:#17130d;font-weight:700;font-family:var(--ui);font-size:" + Math.round(size * 0.44) + "px;";
+    wrap.appendChild(init);
+  };
+  wrap.appendChild(img);
+  return wrap;
+}
+function catHead(slug, name, color, size) {
+  var head = el("div", "cat-head");
+  head.appendChild(avatar(slug, name, color, size || 28));
+  var nm = el("span", "cat-name"); nm.textContent = name; head.appendChild(nm);
+  return head;
+}
+function bigPhoto(slug, name, color) {
+  var box = el("div");
+  box.style.cssText = "position:relative;width:100%;padding-bottom:100%;background:" + color + ";";
+  var img = document.createElement("img");
+  img.alt = name; img.src = "/assets/cats/" + slug + ".webp";
+  img.style.cssText = "position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;";
+  img.onerror = function () {
+    if (img.parentNode) box.removeChild(img);
+    var init = el("div", null, esc((name || "?").charAt(0).toUpperCase()));
+    init.style.cssText = "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#17130d;font-weight:700;font-family:var(--ui);font-size:64px;";
+    box.appendChild(init);
+  };
+  box.appendChild(img);
+  return box;
+}
+function renderGallery(m, root) {
+  var grid = el("div", "cats");
+  m.cats.forEach(function (c) {
+    var color = CAT_COLOR[c.slug] || "var(--brass)";
+    var card = el("div", "card"); card.style.cssText = "padding:0;overflow:hidden;";
+    card.appendChild(bigPhoto(c.slug, c.name, color));
+    var cap = el("div"); cap.style.cssText = "padding:11px 13px;display:flex;align-items:baseline;justify-content:space-between;gap:8px;";
+    var nm = el("span", "cat-name"); nm.textContent = c.name; nm.style.fontSize = "16px";
+    var wt = el("span", "visits"); wt.textContent = Number(c.weight).toFixed(1) + " lb ›";
+    cap.appendChild(nm); cap.appendChild(wt); card.appendChild(cap);
+    linkToCat(card, c.slug);
+    grid.appendChild(card);
+  });
+  root.appendChild(grid);
+  setVerdict(countAttention(m));
+}
+
 /* ---------- per-cat DETAIL view (#/cat/<slug>) ---------- */
 var VISITS_CACHE = {};
 function renderCatDetail(slug, m, root) {
@@ -424,7 +479,7 @@ function renderCatDetail(slug, m, root) {
 
   var back = el("a", "tab", "‹ All cats"); back.href = "#/cats"; root.appendChild(back);
   var head = el("div", "card cat");
-  head.appendChild(el("div", "cat-head", '<span class="chip" style="background:' + color + '"></span><span class="cat-name">' + esc(cat.name) + '</span>'));
+  head.appendChild(catHead(cat.slug, cat.name, color, 56));
   head.appendChild(el("div", "cat-weight", '<span class="n">' + Number(cat.weight).toFixed(1) + '</span><span class="u">lb now</span>'));
   root.appendChild(head);
 
