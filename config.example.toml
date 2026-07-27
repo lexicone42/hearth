@@ -123,6 +123,14 @@ interval_secs = 60
 # # meaningful: without it you can't tell "steady for six hours" from "hearth was
 # # down for six hours".
 # heartbeat_secs = 900
+# # Optional but recommended: dated snapshots of the database. A redb file
+# # CANNOT be safely copied from outside while hearth is running (copy-on-write,
+# # plus an exclusive lock), so these are consistent snapshots taken from within
+# # the process — each one a valid database you can simply move into place to
+# # restore. One per UTC day, keeping the newest `backup_keep` (default 7; 0 =
+# # forever). Unset = NO backups. Point it at a DIFFERENT PHYSICAL DISK.
+# # backup_dir = "/mnt/other-disk/hearth-backups/history"
+# # backup_keep = 7
 
 # Optional: enable the local HTTP server. It is BOTH the JSON API and the
 # fridge-dashboard UI. Omit this whole section to disable it (no listener is

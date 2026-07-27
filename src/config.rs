@@ -61,6 +61,21 @@ pub struct HistoryConfig {
     /// Defaults to 900 (15 minutes).
     #[serde(default = "default_history_heartbeat_secs")]
     pub heartbeat_secs: u64,
+    /// Where to keep dated snapshots of the database. Unset = no backups.
+    /// A redb file can't be copied safely from outside while hearth runs, so
+    /// these are consistent snapshots taken from within. Point this at a
+    /// DIFFERENT physical disk — hearth warns if it shares the database's.
+    #[serde(default)]
+    pub backup_dir: Option<PathBuf>,
+    /// How many dated snapshots to retain (oldest pruned first). `0` keeps
+    /// every snapshot forever. Defaults to 7 — snapshots are full copies, so
+    /// they cost more than the visit archive's.
+    #[serde(default = "default_history_backup_keep")]
+    pub backup_keep: usize,
+}
+
+fn default_history_backup_keep() -> usize {
+    7
 }
 
 fn default_history_path() -> PathBuf {

@@ -1,5 +1,6 @@
 mod ambient;
 mod api;
+mod clock;
 mod config;
 mod domain;
 mod dyson;
@@ -216,9 +217,12 @@ async fn run(
     };
     // Retention only runs when a finite window is configured (`0` = keep all).
     let history_retention = match (&history, &config.history) {
-        (Some(store), Some(cfg)) if cfg.retain_days > 0 => Some(tokio::spawn(
-            run_history_retention(store.clone(), cfg.retain_days),
-        )),
+        (Some(store), Some(cfg)) => Some(tokio::spawn(run_history_maintenance(
+            store.clone(),
+            cfg.path.clone(),
+            cfg.retain_days,
+            cfg.backup_dir.clone().map(|d| (d, cfg.backup_keep)),
+        ))),
         _ => None,
     };
 
@@ -382,7 +386,7 @@ async fn router(
         // and dropped, because losing a history point must never cost us a
         // SmartThings publish.
         if let Some(history) = &history {
-            let (history, batch, now) = (history.clone(), batch.clone(), now_ms());
+            let (history, batch, now) = (history.clone(), batch.clone(), clock::now_ms());
             tokio::task::spawn_blocking(move || match history.record(&batch, now) {
                 Ok(0) => {}
                 Ok(written) => debug!(written, "recorded history points"),
@@ -396,28 +400,51 @@ async fn router(
     debug!("event bus closed; router exiting");
 }
 
-/// Wall clock in epoch milliseconds (UTC).
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
-
-/// Retention task: once a day, drop history points past the retention window.
-/// Never fatal — a failed prune just means the database keeps growing, which is
-/// strictly better than losing data.
-async fn run_history_retention(store: Arc<history::HistoryStore>, retain_days: u32) {
+/// History maintenance: every few hours, snapshot the database, drop points past
+/// the retention window, and log how much history exists.
+///
+/// The stats line is deliberately `info!`: the per-batch record log is `debug!`,
+/// and production runs at `info`, so without this there would be no way to tell
+/// from the log whether history was accumulating at all.
+///
+/// Never fatal — a failed prune just means the database keeps growing, and a
+/// failed snapshot means we retry in a few hours. Both beat losing data.
+async fn run_history_maintenance(
+    store: Arc<history::HistoryStore>,
+    db_path: PathBuf,
+    retain_days: u32,
+    backup: Option<(PathBuf, usize)>,
+) {
     const DAY_MS: i64 = 86_400_000;
     let mut ticker = tokio::time::interval(Duration::from_secs(6 * 60 * 60));
     loop {
         ticker.tick().await;
-        let store = store.clone();
-        let cutoff = now_ms() - retain_days as i64 * DAY_MS;
-        let _ = tokio::task::spawn_blocking(move || match store.prune(cutoff) {
-            Ok(0) => {}
-            Ok(removed) => info!(removed, "pruned expired history points"),
-            Err(e) => warn!(error = ?e, "history retention failed"),
+        let (store, db_path, backup) = (store.clone(), db_path.clone(), backup.clone());
+        let cutoff = (retain_days > 0).then(|| clock::now_ms() - retain_days as i64 * DAY_MS);
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Some(cutoff) = cutoff {
+                match store.prune(cutoff) {
+                    Ok(0) => {}
+                    Ok(removed) => info!(removed, "pruned expired history points"),
+                    Err(e) => warn!(error = ?e, "history retention failed"),
+                }
+            }
+            if let Some((dir, keep)) = &backup {
+                match history::backup::daily(&store, &db_path, dir, *keep) {
+                    Ok(Some(out)) => info!(
+                        path = %out.path.display(),
+                        points = out.points,
+                        pruned = out.pruned,
+                        "snapshotted history"
+                    ),
+                    Ok(None) => {}
+                    Err(e) => error!(error = ?e, dir = %dir.display(), "history snapshot failed"),
+                }
+            }
+            match store.stats() {
+                Ok((entities, points)) => info!(entities, points, "history"),
+                Err(e) => warn!(error = ?e, "could not summarize history"),
+            }
         })
         .await;
     }
