@@ -34,12 +34,45 @@ pub struct Config {
     /// omit them all to disable Dyson (no MQTT tasks spawned).
     #[serde(default)]
     pub dyson: Vec<DysonConfig>,
+    /// Long-term history of every observation, from every source, on disk.
+    /// Omit the whole `[history]` section to disable it (nothing is recorded).
+    #[serde(default)]
+    pub history: Option<HistoryConfig>,
     /// Local HTTP API + fridge dashboard: `GET /` (the dashboard page),
     /// `GET /api/latest` (snapshot), `GET /api/history` + `GET /api/visits`
     /// (Whisker weight history), `GET /assets/cats/{name}`, `GET /healthz`.
     /// Omit the whole `[api]` section to disable it.
     #[serde(default)]
     pub api: Option<ApiConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct HistoryConfig {
+    /// The redb database file. Defaults to `data/history.redb`. Holds personal
+    /// data (everything every sensor has seen), so keep it out of git.
+    #[serde(default = "default_history_path")]
+    pub path: PathBuf,
+    /// Drop points older than this. Defaults to 730 (two years). `0` keeps
+    /// everything forever.
+    #[serde(default = "default_history_retain_days")]
+    pub retain_days: u32,
+    /// Write a point even when a value hasn't changed if the last one is older
+    /// than this, so a long flat stretch is distinguishable from an outage.
+    /// Defaults to 900 (15 minutes).
+    #[serde(default = "default_history_heartbeat_secs")]
+    pub heartbeat_secs: u64,
+}
+
+fn default_history_path() -> PathBuf {
+    PathBuf::from("data/history.redb")
+}
+
+fn default_history_retain_days() -> u32 {
+    730
+}
+
+fn default_history_heartbeat_secs() -> u64 {
+    900
 }
 
 #[derive(Debug, Clone, Deserialize)]

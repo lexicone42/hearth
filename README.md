@@ -148,6 +148,7 @@ is spawned and the hub never touches that vendor.
 | `[whisker]` | Litter-Robot 5 source (Whisker email + password), plus `serial`, `history_dir`, and the `drawer_full_pct` / `litter_low_pct` alert thresholds. |
 | `[[dyson]]` | One block per Dyson device. `host` is the only required key; `ssid` + `wifi_password` off the setup sticker derive the MQTT credential locally (no cloud round-trip). |
 | `[api]` | The local HTTP server: JSON API **and** the dashboard. `listen` defaults to `0.0.0.0:8091`; `token` is an optional bearer for the `/api/*` routes. |
+| `[history]` | Long-term recording of every observation to redb. Omit to record nothing; see [Long-term history](#long-term-history). |
 | `[smartthings]` | The SmartThings sink: auth (`[smartthings.oauth]` or a 24h PAT), `[[smartthings.devices]]` bindings, and `[[smartthings.read]]` for the read-back source. |
 
 The unofficial-cloud sources (Schlage, Whisker) authenticate over AWS Cognito SRP
@@ -366,6 +367,47 @@ Defaults to `data/whisker`; override with `[whisker].history_dir`. It is also th
 sole data source for `/api/history` and `/api/visits`: if it is missing or
 unreadable those endpoints return empty and the dashboard falls back to its
 embedded snapshot, with no error surfaced.
+
+## Long-term history
+
+Sources describe the **present**: the router hands each batch to the sinks and
+`/api/latest` keeps the newest value per entity. Nothing there remembers
+yesterday. Enable `[history]` and the router also writes every batch to an
+embedded [redb](https://github.com/cberner/redb) database — pure Rust, ACID, one
+file — giving any entity from any source a queryable time series with no
+per-source code. A new device that emits observations gets history for free.
+
+```toml
+[history]
+path = "data/history.redb"   # default
+retain_days = 730            # 0 keeps everything
+heartbeat_secs = 900         # see below
+```
+
+The table is keyed `(entity, epoch_ms)`. redb orders tuple keys by component, so
+every point for one entity is contiguous in the B-tree and a time range is a
+single sequential scan — no secondary index.
+
+**Points are written only when a value changes.** Polling ~80 entities a minute
+would be ~42M points a year, nearly all of them repeats. The `heartbeat` is what
+keeps change-only honest: it forces a point when the last one is older than the
+interval, so a gap longer than the heartbeat means *genuinely no data* rather
+than "steady". Without it, a flat line and an outage are indistinguishable.
+
+A value's timestamp never moves backwards, so a replayed or out-of-order
+observation can't rewrite history, and an undecodable row is skipped with a
+warning rather than failing a whole read.
+
+Two shapes of data live side by side on purpose. An **observation** is one scalar
+sample of one channel; a **litter-box visit** is a discrete event carrying
+several *correlated* fields (which cat, what weight, what waste, how long, which
+box). Splitting a visit into four independent observations would throw away the
+correlation that makes it useful, so [the visit archive](#the-visit-archive)
+stays its own store rather than being forced into this one.
+
+> Note: unlike the visit archive, a redb file can't be safely copied with `cp`
+> while it is being written — the backup story for it needs redb's own snapshot
+> mechanism, which isn't wired up yet.
 
 ### Backing it up
 

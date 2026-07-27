@@ -106,6 +106,24 @@ interval_secs = 60
 # # product_type = "438"                 # e.g. 438 = Pure Cool
 # # credential = "..."                   # the already-derived MQTT password
 
+# Optional: record long-term history of EVERY observation, from every source,
+# to an embedded redb database. Omit this whole section to record nothing.
+# Nothing else in hearth remembers yesterday — `/api/latest` only holds the
+# newest value per entity — so until this is on, history simply isn't kept and
+# can never be recovered.
+# [history]
+# # The database file. Defaults to "data/history.redb". Holds everything every
+# # sensor in the house has seen, so keep it out of git (data/ is gitignored).
+# path = "data/history.redb"
+# # Drop points older than this many days; 0 keeps everything forever.
+# retain_days = 730
+# # Even when a value never changes, store a point at least this often. Points
+# # are otherwise written ONLY on change (polling ~80 entities a minute would be
+# # ~42M near-identical points a year). The heartbeat is what makes a gap
+# # meaningful: without it you can't tell "steady for six hours" from "hearth was
+# # down for six hours".
+# heartbeat_secs = 900
+
 # Optional: enable the local HTTP server. It is BOTH the JSON API and the
 # fridge-dashboard UI. Omit this whole section to disable it (no listener is
 # then started at all). Enabling it serves, on the LAN:

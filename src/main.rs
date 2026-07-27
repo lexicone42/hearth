@@ -4,6 +4,7 @@ mod config;
 mod domain;
 mod dyson;
 mod ecoflow;
+mod history;
 mod schlage;
 mod smartthings;
 mod whisker;
@@ -71,6 +72,7 @@ async fn main() -> Result<()> {
         schlage = config.schlage.is_some(),
         whisker = config.whisker.is_some(),
         api = config.api.is_some(),
+        history = config.history.is_some(),
         dyson = config.dyson.len(),
         mac = %config.ambient.mac_address,
         "starting hearth"
@@ -188,7 +190,39 @@ async fn run(
     // Router: the single owner of the sink(s) and the bus receiver. Every
     // observation batch from every source flows through here, and this is the
     // ONLY place `sink.publish` is called.
-    let router = tokio::spawn(router(rx, sink, state));
+    // ----- Long-term history (only when `[history]` is configured) -----
+    // Failing to open it disables history but never the hub: recording the past
+    // is worth less than continuing to serve the present.
+    let history = match &config.history {
+        Some(cfg) => {
+            match history::HistoryStore::open(&cfg.path, Duration::from_secs(cfg.heartbeat_secs)) {
+                Ok(store) => {
+                    let store = Arc::new(store);
+                    match store.stats() {
+                        Ok((entities, points)) => {
+                            info!(path = %cfg.path.display(), entities, points, retain_days = cfg.retain_days, "history opened")
+                        }
+                        Err(e) => warn!(error = ?e, "history opened but could not be summarized"),
+                    }
+                    Some(store)
+                }
+                Err(e) => {
+                    error!(error = ?e, path = %cfg.path.display(), "cannot open history — recording disabled");
+                    None
+                }
+            }
+        }
+        None => None,
+    };
+    // Retention only runs when a finite window is configured (`0` = keep all).
+    let history_retention = match (&history, &config.history) {
+        (Some(store), Some(cfg)) if cfg.retain_days > 0 => Some(tokio::spawn(
+            run_history_retention(store.clone(), cfg.retain_days),
+        )),
+        _ => None,
+    };
+
+    let router = tokio::spawn(router(rx, sink, state, history));
 
     // ----- Ambient source task (always present) -----
     let ambient = tokio::spawn(run_ambient(
@@ -311,6 +345,9 @@ async fn run(
     if let Some(h) = whisker_history {
         h.abort();
     }
+    if let Some(h) = history_retention {
+        h.abort();
+    }
     for h in dyson_handles {
         h.abort();
     }
@@ -332,6 +369,7 @@ async fn router(
     mut rx: mpsc::Receiver<Vec<Observation>>,
     sink: Option<SmartThingsSink>,
     state: Option<api::StateStore>,
+    history: Option<Arc<history::HistoryStore>>,
 ) {
     while let Some(batch) = rx.recv().await {
         // Local store first: a slow SmartThings publish must not delay the
@@ -339,11 +377,50 @@ async fn router(
         if let Some(state) = &state {
             state.record(&batch);
         }
+        // Long-term history. The write touches the disk, so it goes to a
+        // blocking thread rather than stalling the router; a failure is logged
+        // and dropped, because losing a history point must never cost us a
+        // SmartThings publish.
+        if let Some(history) = &history {
+            let (history, batch, now) = (history.clone(), batch.clone(), now_ms());
+            tokio::task::spawn_blocking(move || match history.record(&batch, now) {
+                Ok(0) => {}
+                Ok(written) => debug!(written, "recorded history points"),
+                Err(e) => warn!(error = ?e, "failed to record history"),
+            });
+        }
         if let Some(sink) = &sink {
             sink.publish(&batch).await;
         }
     }
     debug!("event bus closed; router exiting");
+}
+
+/// Wall clock in epoch milliseconds (UTC).
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// Retention task: once a day, drop history points past the retention window.
+/// Never fatal — a failed prune just means the database keeps growing, which is
+/// strictly better than losing data.
+async fn run_history_retention(store: Arc<history::HistoryStore>, retain_days: u32) {
+    const DAY_MS: i64 = 86_400_000;
+    let mut ticker = tokio::time::interval(Duration::from_secs(6 * 60 * 60));
+    loop {
+        ticker.tick().await;
+        let store = store.clone();
+        let cutoff = now_ms() - retain_days as i64 * DAY_MS;
+        let _ = tokio::task::spawn_blocking(move || match store.prune(cutoff) {
+            Ok(0) => {}
+            Ok(removed) => info!(removed, "pruned expired history points"),
+            Err(e) => warn!(error = ?e, "history retention failed"),
+        })
+        .await;
+    }
 }
 
 /// Ambient source task: ticks on the poll interval, fetches the latest reading,
