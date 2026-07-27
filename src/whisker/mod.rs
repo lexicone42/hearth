@@ -32,6 +32,7 @@
 //! Focus (per the hub owner's goals): each cat's **weight**, plus the two
 //! "time to change it" signals per box — a full **waste drawer** and **low litter**.
 pub mod auth;
+pub mod backup;
 pub mod canonical;
 pub mod client;
 pub mod error;

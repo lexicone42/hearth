@@ -70,6 +70,15 @@ interval_secs = 60
 # # unreadable those endpoints return empty and the page silently falls back to
 # # its embedded snapshot — no error is surfaced.
 # # history_dir = "data/whisker"
+# # Optional but STRONGLY recommended: dated backups of that archive. It is the
+# # only copy of this history beyond ~30 days (Whisker's cloud forgets the rest),
+# # so losing it loses it permanently. hearth writes one full copy per UTC day,
+# # `visits-YYYY-MM-DD.jsonl`, atomically and chmod 0600, keeping the newest
+# # `backup_keep` (default 14; 0 = keep forever). Unset = NO backups.
+# # Point this at a DIFFERENT PHYSICAL DISK (or a mounted NAS) — a backup on the
+# # archive's own disk dies with it, and hearth logs a warning if it detects that.
+# # backup_dir = "/mnt/other-disk/hearth-backups/whisker"
+# # backup_keep = 14
 # # "Needs service" alert thresholds. Each box emits `whisker.<box>.needs_service`
 # # (opens when the drawer is at/over drawer_full_pct, the litter is at/under
 # # litter_low_pct, the drawer reports full, or the box is offline). Bind that
