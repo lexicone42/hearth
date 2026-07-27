@@ -2,7 +2,9 @@
 //!
 //! Whisker's app authenticates against an AWS Cognito user pool using the Secure
 //! Remote Password (SRP) protocol, then carries the resulting Cognito **id
-//! token** as a `Bearer` credential on every LR4 GraphQL request.
+//! token** as a `Bearer` credential on every LR5 API request — the REST
+//! robots/activities endpoints at `ub.prod.iothings.site` and the pet-profile
+//! GraphQL endpoint alike.
 //!
 //! We use [`aws_cognito_srp`] to do the SRP math (it generates the `SRP_A` /
 //! password-claim parameters) but make the two Cognito IDP calls ourselves as
@@ -27,7 +29,7 @@
 //!    the challenge's `USER_ID_FOR_SRP` as `USERNAME`. Cognito replies with
 //!    `IdToken` / `AccessToken` / `RefreshToken` / `ExpiresIn`.
 //!
-//! The **id token** is what goes in the LR4 `Authorization` header as
+//! The **id token** is what goes in the LR5 `Authorization` header as
 //! `Bearer <id_token>` (pylitterbot's `Session.get_bearer_authorization` uses
 //! `async_get_id_token`), and the user id used to discover robots is the `mid`
 //! claim decoded from that same id token (pylitterbot's `get_user_id`).
@@ -87,7 +89,7 @@ pub struct CognitoAuth {
     state: Mutex<Option<TokenState>>,
 }
 
-/// The in-memory token cache: the id token used for the LR4 API (as a bearer),
+/// The in-memory token cache: the id token used for the LR5 API (as a bearer),
 /// the refresh token to renew it cheaply, and when to consider it stale.
 #[derive(Debug)]
 struct TokenState {
@@ -145,7 +147,7 @@ impl CognitoAuth {
         })
     }
 
-    /// A currently-valid Cognito **id token** (the LR4 bearer). Returns the
+    /// A currently-valid Cognito **id token** (the LR5 bearer). Returns the
     /// cached token when fresh; otherwise refreshes (cheap) and, if that fails,
     /// does a full SRP re-auth. Errors are typed ([`WhiskerError`]).
     pub async fn token(&self) -> Result<String, WhiskerError> {

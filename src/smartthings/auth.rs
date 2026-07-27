@@ -198,9 +198,9 @@ pub struct TokenManager {
 impl TokenManager {
     /// Load persisted tokens; errors if none exist yet (run `auth` first).
     pub fn load(oauth: OAuthClient, store: TokenStore) -> Result<Arc<Self>> {
-        let tokens = store.load()?.context(
-            "no SmartThings tokens stored yet — run `ambient-st-bridge auth` once to authorize",
-        )?;
+        let tokens = store
+            .load()?
+            .context("no SmartThings tokens stored yet — run `hearth auth` once to authorize")?;
         Ok(Arc::new(Self {
             oauth,
             store,

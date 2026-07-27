@@ -15,7 +15,8 @@ const SOURCE: &str = "whisker";
 ///     `dfiLevelPercent` — the graduated "empty it" signal.
 ///   - `whisker.<box>.status` ([`DeviceClass::Status`]): friendly unit status
 ///     text. The waste-drawer-full and offline alerts are *folded in here*
-///     (they take precedence over the raw status), matching the LR4 approach.
+///     (they take precedence over the raw status), matching pylitterbot's
+///     handling.
 ///   - `whisker.<box>.last_visit_weight` ([`DeviceClass::Weight`]): the LAST
 ///     visitor's weight (`weightSensor / 100`, lb). This is NOT a per-cat weight
 ///     — the tracked per-cat weight comes from [`pet_observations`]; the distinct
@@ -121,7 +122,7 @@ pub fn pet_observations(pet: &Pet) -> Vec<Observation> {
 
 /// The unit status as friendly text. Offline and drawer-full take precedence
 /// over the reported status so the two "needs attention" states are never masked
-/// (matches the LR4 approach). Otherwise prefer `statusIndicator.title`, then the
+/// (matches pylitterbot's handling). Otherwise prefer `statusIndicator.title`, then the
 /// raw `displayCode`. `None` when the box reports none of them (nothing to say).
 fn status_text(state: &RobotState) -> Option<String> {
     if state.is_online == Some(false) {

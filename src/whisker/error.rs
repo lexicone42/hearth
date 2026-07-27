@@ -1,4 +1,4 @@
-//! Typed, *diagnosable* errors for the Whisker (Litter-Robot 4) source.
+//! Typed, *diagnosable* errors for the Whisker (Litter-Robot 5) source.
 //!
 //! Same taxonomy as the Schlage source, so a user can tell apart:
 //!   - [`WhiskerError::Credentials`] — "my Whisker password is wrong".
@@ -40,8 +40,9 @@ pub enum WhiskerError {
         body: String,
     },
 
-    /// A response (Cognito auth result / challenge, the id-token JWT, or the LR4
-    /// GraphQL payload) did not match our structs — or the GraphQL response
+    /// A response (Cognito auth result / challenge, the id-token JWT, the LR5
+    /// REST payload, or the pet-profile GraphQL payload) did not match our
+    /// structs — or the GraphQL response
     /// carried an `errors` array. This is the "their unofficial API changed under
     /// us" signal — surfaced loudly and distinctly, never a panic or a wrong value.
     #[error("Whisker response did not match the expected shape: {0}")]

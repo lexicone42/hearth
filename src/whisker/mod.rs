@@ -12,13 +12,15 @@
 //!   - [`history`]   the append-only weight archive: persists every PET_VISIT
 //!     (per-cat weight) forever, since the cloud retains only ~30 days.
 //!
-//! LR5 splits the data across TWO live-verified endpoints, both authed with the
-//! id token as `Authorization: Bearer <IdToken>` (the `Bearer` prefix is
+//! LR5 splits the data across THREE live-verified endpoints, all authed with
+//! the id token as `Authorization: Bearer <IdToken>` (the `Bearer` prefix is
 //! required — a raw token 401s):
 //!   - **robots** — `GET https://ub.prod.iothings.site/robots` (also needs the
 //!     public `x-api-key`): each box's litter / waste / status.
 //!   - **pets** — `POST https://pet-profile.iothings.site/graphql/`
 //!     (`getPetsByUser`): each cat's measured weight — the hub owner's #1 goal.
+//!   - **activities** — `GET https://ub.prod.iothings.site/robots/{serial}/activities`
+//!     (Bearer + `x-api-key`): the PET_VISIT feed the weight archive banks.
 //!
 //! The whole source is a no-op when the `[whisker]` config section is absent —
 //! `main` only constructs a [`client::WhiskerClient`] when credentials exist.

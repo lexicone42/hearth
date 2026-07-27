@@ -78,10 +78,10 @@ pub enum DeviceClass {
     /// local API sink / watch.
     Weight,
     /// Remaining litter level as a percentage (0–100). A low value is the
-    /// "litter is low, refill it" signal (Whisker LR4).
+    /// "litter is low, refill it" signal (Whisker LR5).
     LitterLevel,
     /// Waste-drawer fullness as a percentage (0–100). A high value is the "empty
-    /// the drawer" signal (Whisker LR4).
+    /// the drawer" signal (Whisker LR5).
     WasteDrawer,
     /// A device's unit status as free text (e.g. a Litter-Robot's `Ready` /
     /// `Drawer Full` / `Offline`). No standard SmartThings mapping — local only.

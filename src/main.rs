@@ -73,7 +73,7 @@ async fn main() -> Result<()> {
         api = config.api.is_some(),
         dyson = config.dyson.len(),
         mac = %config.ambient.mac_address,
-        "starting ambient-st-bridge"
+        "starting hearth"
     );
 
     let client = AmbientClient::new(&config.ambient.application_key, &config.ambient.api_key)?;
@@ -141,8 +141,8 @@ async fn main() -> Result<()> {
 
 /// Internal event-bus orchestration. Each source is its own task holding a
 /// clone of the bus `Sender`; a single router task owns the sink(s) and the
-/// `Receiver`. Data flows source-task → bus → router → sink, so a new push
-/// source (Dyson, Phase 2) needs no tick and no sink wiring — it just sends.
+/// `Receiver`. Data flows source-task → bus → router → sink, so a push source
+/// (Dyson) needs no tick and no sink wiring — it just sends.
 ///
 /// Observable behavior is identical to the previous inline loop: the same fetch
 /// cadence (Ambient/EcoFlow tickers), the same log lines, and the same
@@ -446,11 +446,6 @@ async fn run_ecoflow(
     }
 }
 
-/// Schlage source task: ticks on the poll interval, fetches the account's locks
-/// (authenticating / refreshing the Cognito token as needed inside the client),
-/// maps each to canonical observations, logs them, and sends the batch onto the
-/// bus. Errors are logged, never fatal — Schlage's unofficial cloud can hiccup
-/// or change, and that must not take down the bridge. Mirrors `run_ecoflow`.
 /// Capped exponential backoff for a source's consecutive failures. Keeps a
 /// persistent failure — e.g. a wrong Schlage password — from re-hammering the
 /// upstream every tick, which for an auth endpoint risks locking the account.
@@ -460,6 +455,11 @@ fn backoff_delay(base: Duration, max: Duration, failures: u32) -> Duration {
     base.saturating_mul(mult).min(max)
 }
 
+/// Schlage source task: ticks on the poll interval, fetches the account's locks
+/// (authenticating / refreshing the Cognito token as needed inside the client),
+/// maps each to canonical observations, logs them, and sends the batch onto the
+/// bus. Errors are logged, never fatal — Schlage's unofficial cloud can hiccup
+/// or change, and that must not take down the bridge. Mirrors `run_ecoflow`.
 async fn run_schlage(
     client: SchlageClient,
     unit_system: domain::UnitSystem,
@@ -814,7 +814,9 @@ async fn run_whisker_history_import(config: &Config, snapshot_dir: PathBuf) -> R
 
 /// Log a Whisker source error at the right level: transient (network, 429/5xx)
 /// as `warn!` (likely clears), persistent (bad creds, decode drift) as `error!`
-/// (needs human action). `source` names which feed failed (`robots` / `pets`).
+/// (needs human action). `source` names which feed failed — `robots` / `pets`
+/// for the live task, `history/robots` / `history/pets` / `history/activities`
+/// for the archive task.
 fn log_whisker_error(source: &str, e: &whisker::WhiskerError) {
     if e.is_transient() {
         warn!(source, kind = e.kind(), error = %e, "{}", e.hint());
