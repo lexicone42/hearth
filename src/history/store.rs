@@ -210,6 +210,62 @@ impl HistoryStore {
         Ok(doomed.len())
     }
 
+    /// Write a consistent point-in-time copy of the history to `dest`.
+    ///
+    /// A redb file **cannot** be backed up with `cp`: it is copy-on-write and
+    /// holds an exclusive lock, so a byte copy taken while hearth is running can
+    /// catch a torn state, and a second process can't even open it to try. The
+    /// backup therefore has to come from inside, and this is it.
+    ///
+    /// The copy is *logical*: a read transaction gives an MVCC snapshot that
+    /// writers don't block and can't disturb, and every row in it is written
+    /// into a brand-new database. The result is a valid, compact redb file that
+    /// can simply be moved into place to restore. Returns the points copied.
+    ///
+    /// Cost is O(size) — fine while the database is small, and worth revisiting
+    /// (incremental export) if it ever isn't.
+    pub fn snapshot(&self, dest: &Path) -> Result<usize> {
+        if let Some(parent) = dest.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating snapshot dir {}", parent.display()))?;
+        }
+        // Build into a temp file, then rename: a crash mid-snapshot must never
+        // leave a half-written file where a good backup used to be.
+        let tmp = dest.with_extension("tmp");
+        let _ = std::fs::remove_file(&tmp);
+
+        let read = self.db.begin_read().context("opening history read txn")?;
+        let source = read
+            .open_table(OBSERVATIONS)
+            .context("opening observations table")?;
+
+        let mut copied = 0usize;
+        {
+            let out = Database::create(&tmp)
+                .with_context(|| format!("creating snapshot {}", tmp.display()))?;
+            let txn = out.begin_write().context("opening snapshot write txn")?;
+            {
+                let mut table = txn
+                    .open_table(OBSERVATIONS)
+                    .context("creating snapshot table")?;
+                for row in source.iter().context("scanning history for snapshot")? {
+                    let (k, v) = row.context("reading history row")?;
+                    let (entity, at) = k.value();
+                    table
+                        .insert((entity, at), v.value())
+                        .context("writing snapshot row")?;
+                    copied += 1;
+                }
+            }
+            txn.commit().context("committing snapshot")?;
+        } // drop the snapshot db, releasing its lock before the rename
+
+        crate::whisker::history::restrict_to_owner(&tmp)?;
+        std::fs::rename(&tmp, dest)
+            .with_context(|| format!("renaming {} -> {}", tmp.display(), dest.display()))?;
+        Ok(copied)
+    }
+
     /// `(distinct entities, total points)` — for startup and retention logging.
     pub fn stats(&self) -> Result<(usize, usize)> {
         let txn = self.db.begin_read().context("opening history read txn")?;

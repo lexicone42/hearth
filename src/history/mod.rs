@@ -17,6 +17,7 @@
 //! independent observations would throw away the correlation that makes it
 //! useful, so the two stores stay separate on purpose.
 
+pub mod backup;
 pub mod codec;
 pub mod store;
 

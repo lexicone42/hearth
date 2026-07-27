@@ -405,9 +405,29 @@ box). Splitting a visit into four independent observations would throw away the
 correlation that makes it useful, so [the visit archive](#the-visit-archive)
 stays its own store rather than being forced into this one.
 
-> Note: unlike the visit archive, a redb file can't be safely copied with `cp`
-> while it is being written — the backup story for it needs redb's own snapshot
-> mechanism, which isn't wired up yet.
+### Backing up the database
+
+A redb file **cannot** be copied from outside while hearth is running: it is
+copy-on-write and holds an exclusive lock, so a byte copy can catch a torn state
+and a second process can't even open it to try. Its backup therefore has to come
+from inside the process, and `[history].backup_dir` turns that on:
+
+```toml
+[history]
+backup_dir = "/mnt/other-disk/hearth-backups/history"
+backup_keep = 7
+```
+
+Once a day hearth takes a **consistent logical snapshot** — a read transaction
+gives an MVCC view that writers neither block nor disturb, and every row in it is
+written into a brand-new database. The result is a valid, compact redb file, so
+restoring is just moving it into place. Snapshots are dated
+(`history-YYYY-MM-DD.redb`), written atomically, owner-only, and pruned past
+`backup_keep`; as with the visit archive, hearth warns when they land on the
+database's own device.
+
+Snapshots are full copies, so they cost O(size) each — comfortable while the
+database is small, and worth revisiting (incremental export) if it isn't.
 
 ### Backing it up
 
