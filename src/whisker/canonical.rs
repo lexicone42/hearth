@@ -120,6 +120,26 @@ pub fn pet_observations(pet: &Pet) -> Vec<Observation> {
     )]
 }
 
+/// The [`DeviceClass`] a Whisker channel carries, derived from the channel name
+/// alone — so a SmartThings device bound to `whisker.<node>.<channel>` can be
+/// provisioned before the source has ever polled (mirrors
+/// [`crate::dyson::canonical::class_for_channel`]).
+///
+/// MUST stay in sync with what [`robot_observations`], [`pet_observations`] and
+/// [`alert_observation`] actually emit — the `channel_classes_match_emitted`
+/// test fails if they ever drift apart.
+pub fn class_for_channel(channel: &str) -> Option<DeviceClass> {
+    Some(match channel {
+        "litter_level" => DeviceClass::LitterLevel,
+        "waste_drawer" => DeviceClass::WasteDrawer,
+        "status" => DeviceClass::Status,
+        // Per-cat weight and the box's last-visitor weight are both masses.
+        "weight" | "last_visit_weight" => DeviceClass::Weight,
+        "needs_service" => DeviceClass::Alert,
+        _ => return None,
+    })
+}
+
 /// The unit status as friendly text. Offline and drawer-full take precedence
 /// over the reported status so the two "needs attention" states are never masked
 /// (matches pylitterbot's handling). Otherwise prefer `statusIndicator.title`, then the
@@ -391,6 +411,39 @@ mod tests {
             alert_observation(&offline, 90.0, 10.0).value,
             Value::Flag(true)
         );
+    }
+
+    #[test]
+    fn channel_classes_match_emitted() {
+        // `class_for_channel` lets provisioning resolve a device's capability
+        // without a live poll, so it must agree with what we actually emit. Emit
+        // one of everything, then assert the lookup matches channel by channel.
+        let robot = robot_from(serde_json::json!({
+            "serial": "LR5-TEST-000000", "name": "test room",
+            "state": { "isOnline": true, "isDrawerFull": false, "weightSensor": 943.0,
+                       "litterLevelPercent": 100.0, "dfiLevelPercent": 39,
+                       "statusIndicator": { "title": "Ready" } }
+        }));
+        let pet = pet_from(serde_json::json!({
+            "petId": "PET-TEST-1", "name": "Fixture One", "lastWeightReading": 9.4
+        }));
+
+        let mut emitted = robot_observations(&robot);
+        emitted.push(alert_observation(&robot, 90.0, 10.0));
+        emitted.extend(pet_observations(&pet));
+        assert!(emitted.len() >= 6, "expected one observation per channel");
+
+        for obs in &emitted {
+            let channel = obs.entity.as_str().rsplit('.').next().unwrap();
+            assert_eq!(
+                class_for_channel(channel),
+                Some(obs.class),
+                "channel `{channel}` resolves to the wrong class — provisioning would \
+                 create the wrong capability"
+            );
+        }
+        // An unknown channel must stay unknown rather than guess.
+        assert_eq!(class_for_channel("not_a_channel"), None);
     }
 
     #[test]

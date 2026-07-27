@@ -89,7 +89,8 @@ pub async fn run_provision(config: &Config) -> Result<()> {
             let class = class_by_entity
                 .get(entity.as_str())
                 .copied()
-                .or_else(|| class_for_dyson_entity(entity));
+                .or_else(|| class_for_dyson_entity(entity))
+                .or_else(|| class_for_whisker_entity(entity));
             match class {
                 Some(class) => match capability_id(class) {
                     Some(cap) if !capabilities.contains(&cap) => capabilities.push(cap),
@@ -97,7 +98,7 @@ pub async fn run_provision(config: &Config) -> Result<()> {
                     None => println!("    {entity}: no standard capability yet — skipped"),
                 },
                 None => println!(
-                    "    {entity}: unknown entity (not in a reading or a known dyson channel) — skipped"
+                    "    {entity}: unknown entity (not in a reading, and not a known dyson/whisker channel) — skipped"
                 ),
             }
         }
@@ -133,4 +134,12 @@ pub async fn run_provision(config: &Config) -> Result<()> {
 fn class_for_dyson_entity(entity: &str) -> Option<DeviceClass> {
     let channel = entity.strip_prefix("dyson.")?.rsplit('.').next()?;
     crate::dyson::canonical::class_for_channel(channel)
+}
+
+/// Class of a `whisker.<node>.<channel>` entity, derived from its channel name
+/// without a live poll — so a litter-box alert device can be provisioned before
+/// Whisker has ever been reached. `None` for non-whisker entities.
+fn class_for_whisker_entity(entity: &str) -> Option<DeviceClass> {
+    let channel = entity.strip_prefix("whisker.")?.rsplit('.').next()?;
+    crate::whisker::canonical::class_for_channel(channel)
 }
