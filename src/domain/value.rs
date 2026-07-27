@@ -74,7 +74,9 @@ impl Unit {
     }
 
     /// Value in this unit -> the dimension's base unit.
-    /// Bases: Celsius, hectopascal, m/s, millimetre, kilometre.
+    /// Bases: Celsius, hectopascal, m/s, millimetre, kilometre, kilogram, watt,
+    /// watt-hour. Ratio/Angle/Irradiance/MassConcentration/Index are
+    /// single-unit dimensions and pass through unchanged.
     fn to_base(self, v: f64) -> f64 {
         match self {
             Unit::Fahrenheit => (v - 32.0) * 5.0 / 9.0,

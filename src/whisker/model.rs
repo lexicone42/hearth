@@ -1,6 +1,9 @@
 //! Serde structs for the Litter-Robot 5 cloud responses.
 //!
-//! LR5 exposes the data this source needs across TWO live-verified endpoints,
+//! LR5 exposes the data this source needs across THREE live-verified endpoints
+//! (the third, **Activities** — `GET https://ub.prod.iothings.site/robots/{serial}/activities`,
+//! a JSON array of a box's events, most-recent first — is parsed by
+//! [`parse_activities`] below and feeds the weight archive; see [`Activity`]),
 //! both authed with `Authorization: Bearer <IdToken>`:
 //!   - **Robots** — `GET https://ub.prod.iothings.site/robots` returns a JSON
 //!     *array* of robots; the box's litter/waste/status live under each robot's
@@ -104,7 +107,8 @@ pub fn parse_robots(body: &str) -> Result<Vec<Robot>, WhiskerError> {
 /// One pet from `getPetsByUser`. The per-cat weight is the hub owner's #1 goal.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Pet {
-    /// Whisker-internal pet id. Retained for completeness / future use.
+    /// Whisker-internal pet id — the entity-node fallback when a cat is unnamed,
+    /// and the key the weight archive resolves cat names by.
     #[serde(rename = "petId", default)]
     #[allow(dead_code)]
     pub pet_id: String,

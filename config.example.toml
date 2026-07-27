@@ -1,7 +1,11 @@
 # Copy to `config.toml` and fill in. `config.toml` is gitignored (it holds secrets).
-# Override the path with the AMBIENT_ST_CONFIG env var.
+# Override the path with the HEARTH_CONFIG env var.
 
-# "imperial" (°F, inHg, mph, in) or "metric" (°C, hPa, km/h, mm).
+# Everything below except [ambient] is optional. Omit any section to take its
+# defaults (or, for a source, to disable it entirely — no task is then spawned).
+
+# Optional. "imperial" (°F, inHg, mph, in) or "metric" (°C, hPa, km/h, mm).
+# Defaults to "imperial".
 unit_system = "imperial"
 
 [ambient]
@@ -10,8 +14,10 @@ application_key = "your-ambient-application-key"
 api_key = "your-ambient-api-key"
 mac_address = "AA:BB:CC:DD:EE:FF"
 
+# Optional. Omit the whole section to take the default.
 [poll]
-# REST poll interval (seconds). Realtime push (Phase 5) makes this a fallback.
+# REST poll interval (seconds) for every poll source; defaults to 60. Push
+# sources (Dyson) ignore it. Also the tick for the Whisker history archive.
 interval_secs = 60
 
 # Optional: enable the EcoFlow source. Omit this whole section to disable it
@@ -57,8 +63,12 @@ interval_secs = 60
 # # Optional: directory for the forever weight-history archive (visits.jsonl).
 # # hearth appends every PET_VISIT (per-cat weight + waste) here, so you keep a
 # # permanent record even though Whisker's cloud only retains ~30 days. Holds
-# # personal pet data (kept out of git). Defaults to `data/whisker`. Seed it
-# # from a saved snapshot with:  hearth whisker-history-import <snapshot-dir>
+# # personal pet data (kept out of git, chmod 0600). Defaults to `data/whisker`.
+# # Seed it from a saved snapshot with:  hearth whisker-history-import <snapshot-dir>
+# # This archive is ALSO what the dashboard's weight sparklines and per-cat
+# # charts read (GET /api/history, GET /api/visits). If it is missing or
+# # unreadable those endpoints return empty and the page silently falls back to
+# # its embedded snapshot — no error is surfaced.
 # # history_dir = "data/whisker"
 # # "Needs service" alert thresholds. Each box emits `whisker.<box>.needs_service`
 # # (opens when the drawer is at/over drawer_full_pct, the litter is at/under
@@ -72,12 +82,13 @@ interval_secs = 60
 # Dyson (no MQTT tasks spawned). This is a PUSH source: no poll interval — it
 # emits observations as the device sends them.
 # [[dyson]]
-# host = "192.168.2.133"
-# port = 1883                            # 1883 plaintext (most models); 8883 = TLS
-# tls = false                            # set true for 8883 / TLS-only models
-# # From the device's setup sticker. `serial` and `product_type` are parsed from
-# # the SSID, and the MQTT credential is derived locally as
-# # base64(SHA-512(wifi_password)) — no Dyson cloud round-trip.
+# host = "192.168.2.133"                 # the only REQUIRED key in this block
+# port = 1883                            # optional; default 1883 (8883 = TLS)
+# tls = false                            # optional; default false (set true for 8883)
+# # From the device's setup sticker. Optional in the schema, but you need EITHER
+# # ssid + wifi_password OR the explicit overrides below — `serial` and
+# # `product_type` are parsed from the SSID, and the MQTT credential is derived
+# # locally as base64(SHA-512(wifi_password)) — no Dyson cloud round-trip.
 # ssid = "DYSON-XXX-XX-XXXXXXXX-XXX"
 # wifi_password = "..."
 # # Optional explicit overrides if the sticker SSID is unavailable. Any of these
@@ -86,18 +97,40 @@ interval_secs = 60
 # # product_type = "438"                 # e.g. 438 = Pure Cool
 # # credential = "..."                   # the already-derived MQTT password
 
-# Optional: enable the local HTTP API sink — the latest observation per entity,
-# served as JSON on the LAN (`GET /api/latest`, liveness at `GET /healthz`).
-# Built for local dashboards (e.g. a Wear OS tile). Omit to disable.
+# Optional: enable the local HTTP server. It is BOTH the JSON API and the
+# fridge-dashboard UI. Omit this whole section to disable it (no listener is
+# then started at all). Enabling it serves, on the LAN:
+#   GET /                                  the dashboard page (HTML; NO auth)
+#   GET /api/latest                        latest observation per entity, JSON
+#   GET /api/history                       per-cat 10-day daily-median weights
+#   GET /api/visits?cat=<slug>&days=<n>    one cat's visits (n capped at 60)
+#   GET /assets/cats/<file>                cached cat photos from data/cats/ (NO auth)
+#   GET /healthz                           liveness (NO auth)
+# /api/history and /api/visits read [whisker].history_dir; they return empty
+# when [whisker] is not configured or the archive is unreadable.
 # [api]
-# listen = "0.0.0.0:8091"    # bind 127.0.0.1:8091 to keep it host-local
-# # Optional bearer token; when set, /api/latest requires
-# # `Authorization: Bearer <token>` (healthz stays open).
+# # Optional. Bind address; defaults to "0.0.0.0:8091" — ALL interfaces, since
+# # hearth assumes a trusted LAN. Bind 127.0.0.1:8091 to keep it host-local.
+# listen = "0.0.0.0:8091"
+# # Optional bearer token. When set, the three /api/* routes require
+# # `Authorization: Bearer <token>`. NOTE the display surfaces stay OPEN: `/`,
+# # /assets/cats/*, and /healthz. The token is injected into the dashboard page
+# # so its own polls authenticate — which means anyone who can reach the port can
+# # read it out of the page source. This is LAN-grade auth, not access control:
+# # if untrusted clients can reach the port, bind localhost and front it with an
+# # authenticating reverse proxy.
 # token = "generate-something-long-and-random"
 
 # Optional: enable the SmartThings sink. Omit this whole section to just log.
 # [smartthings]
-# token_store = "token_store.json"           # where OAuth tokens are persisted
+# # Where refreshed OAuth tokens are persisted (default "token_store.json").
+# # Holds a LIVE refresh token for your SmartThings account — treat it like a
+# # password: it is gitignored, and hearth keeps it chmod 0600.
+# token_store = "token_store.json"
+# # Where `provision` saves the virtual devices it creates, as name -> device id
+# # (default "device_store.json"). Delete it only if you also delete the devices
+# # in SmartThings, or `provision` will create duplicates.
+# device_store = "device_store.json"
 # # base_url = "https://api.smartthings.com" # default
 # #
 # # Quick 24h smoke test: set a Personal Access Token and skip [smartthings.oauth].
@@ -110,6 +143,11 @@ interval_secs = 60
 # client_secret = "your-client-secret"
 # redirect_uri = "https://localhost/callback"
 # scopes = ["r:devices:*", "w:devices:*", "x:devices:*"]
+# # Optional endpoint overrides. Both default to SmartThings' own URLs (note the
+# # token endpoint is on a DIFFERENT host); set them only to target another IdP
+# # or a test double.
+# # authorize_url = "https://api.smartthings.com/oauth/authorize"
+# # token_url = "https://auth-global.api.smartthings.com/oauth/token"
 #
 # # Declare devices by name + the entities they carry, then run
 # # `cargo run -- provision` to self-create them (ids saved to device_store.json).
@@ -118,6 +156,7 @@ interval_secs = 60
 # [[smartthings.devices]]
 # name = "Outdoor Weather"
 # # device_id = "..."   # optional: use an existing device instead of provisioning
+# # component = "main"  # optional: component to write events to (default "main")
 # entities = [
 #   "ambient_weather.outdoor.temperature",
 #   "ambient_weather.outdoor.humidity",

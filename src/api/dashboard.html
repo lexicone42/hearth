@@ -781,7 +781,7 @@ function apiGet(path) {
   return fetch(path, opt).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); });
 }
 function pull() {
-  return Promise.all([apiGet("/api/latest"), apiGet("/api/history?days=10").catch(function () { return null; })])
+  return Promise.all([apiGet("/api/latest"), apiGet("/api/history").catch(function () { return null; })])
     .then(function (res) {
       var m = model(res[0], res[1]); paint(m);
       try { localStorage.setItem("hearth.snap", JSON.stringify(res[0])); localStorage.setItem("hearth.hist", JSON.stringify(res[1] || {})); } catch (e) {}

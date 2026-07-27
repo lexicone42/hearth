@@ -61,7 +61,10 @@ pub fn capability_id(class: DeviceClass) -> Option<&'static str> {
 
 /// Map a canonical observation to a SmartThings standard capability event,
 /// re-expressing quantities in `system`. `None` for classes with no standard
-/// capability yet (wind, rain, pressure, solar, lightning).
+/// capability: the weather set (wind, rain, pressure, solar, lightning, soil
+/// moisture), NO2 (deliberately unmapped — see `standard_capability`), and the
+/// read-only/local-only classes (Lock, Weight, LitterLevel, WasteDrawer,
+/// Status, Timestamp).
 pub fn to_event(obs: &Observation, system: UnitSystem) -> Option<StEvent> {
     let (capability, attribute) = standard_capability(obs.class)?;
     let (value, unit) = encode_value(obs, system)?;

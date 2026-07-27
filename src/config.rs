@@ -6,8 +6,7 @@ use serde::Deserialize;
 use crate::domain::UnitSystem;
 
 /// Top-level configuration, loaded from a TOML file (default `config.toml`,
-/// override with the `AMBIENT_ST_CONFIG` env var). The `[smartthings]`
-/// section lands here in Phase 4.
+/// override with the `HEARTH_CONFIG` env var).
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     pub ambient: AmbientConfig,
@@ -35,8 +34,10 @@ pub struct Config {
     /// omit them all to disable Dyson (no MQTT tasks spawned).
     #[serde(default)]
     pub dyson: Vec<DysonConfig>,
-    /// Local HTTP API sink (`GET /api/latest` for LAN dashboards, e.g. the
-    /// Wear OS tile). Omit the whole `[api]` section to disable it.
+    /// Local HTTP API + fridge dashboard: `GET /` (the dashboard page),
+    /// `GET /api/latest` (snapshot), `GET /api/history` + `GET /api/visits`
+    /// (Whisker weight history), `GET /assets/cats/{name}`, `GET /healthz`.
+    /// Omit the whole `[api]` section to disable it.
     #[serde(default)]
     pub api: Option<ApiConfig>,
 }
@@ -48,8 +49,10 @@ pub struct ApiConfig {
     /// keep it host-local).
     #[serde(default = "default_api_listen")]
     pub listen: String,
-    /// Optional static bearer token. When set, `/api/latest` requires
-    /// `Authorization: Bearer <token>`; `/healthz` stays open.
+    /// Optional static bearer token. When set, `/api/latest`, `/api/history`
+    /// and `/api/visits` require `Authorization: Bearer <token>`. The display
+    /// surfaces stay open: `/` (the dashboard, which gets the token injected at
+    /// serve time), `/assets/cats/{name}`, and `/healthz`.
     #[serde(default)]
     pub token: Option<String>,
 }
@@ -160,11 +163,11 @@ pub struct EcoflowConfig {
     /// EcoFlow IoT Open API "secretKey" (from the developer portal).
     pub secret_key: String,
     /// Device serial numbers to poll. Leave empty to discover them from the
-    /// device-list endpoint at startup (still a no-op if both keys are unset,
+    /// device-list endpoint on every poll (still a no-op if both keys are unset,
     /// because the whole `[ecoflow]` section is then absent).
     #[serde(default)]
     pub device_sns: Vec<String>,
-    /// API base host; defaults to `api-e.ecoflow.com`.
+    /// API base URL including scheme; defaults to `https://api-e.ecoflow.com`.
     #[serde(default)]
     pub base_url: Option<String>,
 }
