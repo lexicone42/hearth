@@ -275,7 +275,11 @@ pub struct VisitLite {
     pub box_name: String,
     pub weight: f64,
     pub waste: Option<String>,
+    /// Seconds spent in the box — the "time in box" trend (a rising median is a
+    /// straining signal worth watching).
     pub duration: Option<i64>,
+    /// Grams of waste left in that visit.
+    pub waste_weight: Option<f64>,
 }
 
 /// Every plausible visit for one cat (by `slug`) over the most recent `max_days`
@@ -311,6 +315,7 @@ pub fn cat_visits(dir: impl AsRef<Path>, slug: &str, max_days: usize) -> Vec<Vis
                 weight: rec.weight_lb,
                 waste: rec.waste_type,
                 duration: rec.duration_s,
+                waste_weight: rec.waste_weight,
             });
     }
 
@@ -489,9 +494,9 @@ mod tests {
             pet_id: Some("PET-TEST-1".to_string()),
             cat: Some(cat.to_string()),
             weight_lb: w,
-            waste_type: None,
-            waste_weight: None,
-            duration_s: None,
+            waste_type: Some("Urine".to_string()),
+            waste_weight: Some(48.0),
+            duration_s: Some(61),
         }
     }
 
@@ -560,6 +565,11 @@ mod tests {
         assert_eq!(v.len(), 2); // noise dropped, other cat excluded
         assert!(v[0].ts < v[1].ts); // chronological
         assert_eq!(v[0].weight, 9.4);
+        // The detail page charts time-in-box and output, so both must survive
+        // the projection (they come straight off the archived visit).
+        assert_eq!(v[0].duration, Some(61));
+        assert_eq!(v[0].waste_weight, Some(48.0));
+        assert_eq!(v[0].waste.as_deref(), Some("Urine"));
 
         // Window to the most recent day only.
         let recent = cat_visits(&dir, "fixture_one", 1);
