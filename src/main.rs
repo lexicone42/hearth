@@ -241,10 +241,18 @@ async fn run(
                 tx.clone(),
             ));
             let history_dir = whisker_history_dir(&config);
+            // Dated off-disk backups of the archive, when `[whisker].backup_dir`
+            // is set. Absent = no backups (we never silently back up onto the
+            // archive's own disk, which would only look like protection).
+            let backup = config
+                .whisker
+                .as_ref()
+                .and_then(|w| w.backup_dir.clone().map(|d| (d, w.backup_keep)));
             let history = tokio::spawn(run_whisker_history(
                 client,
                 config.poll.interval_secs,
                 history_dir,
+                backup,
             ));
             (Some(live), Some(history))
         }
@@ -662,7 +670,12 @@ async fn whisker_pet_names(client: &WhiskerClient) -> HashMap<String, String> {
 /// failure can't re-hammer Cognito (which risks account lockout). Never fatal —
 /// a broken archive tick must not take down the hub. Aborted on shutdown like
 /// every other source task.
-async fn run_whisker_history(client: Arc<WhiskerClient>, interval_secs: u64, history_dir: PathBuf) {
+async fn run_whisker_history(
+    client: Arc<WhiskerClient>,
+    interval_secs: u64,
+    history_dir: PathBuf,
+    backup: Option<(PathBuf, usize)>,
+) {
     let base = Duration::from_secs(interval_secs);
     let max_backoff = Duration::from_secs(30 * 60);
     let mut failures: u32 = 0;
@@ -727,6 +740,21 @@ async fn run_whisker_history(client: Arc<WhiskerClient>, interval_secs: u64, his
                     }
                 }
                 Err(e) => log_whisker_error("history/activities", &e),
+            }
+        }
+
+        // Back the archive up (at most once a day; a no-op the rest of the time).
+        // Never fatal — a failed backup must not stop archiving.
+        if let Some((dir, keep)) = &backup {
+            match whisker::backup::daily(&history_dir, dir, *keep) {
+                Ok(Some(out)) => info!(
+                    path = %out.path.display(),
+                    records = out.records,
+                    pruned = out.pruned,
+                    "backed up the Whisker archive"
+                ),
+                Ok(None) => {}
+                Err(e) => error!(error = ?e, dir = %dir.display(), "Whisker archive backup failed"),
             }
         }
 

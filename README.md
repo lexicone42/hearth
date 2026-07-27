@@ -367,6 +367,33 @@ sole data source for `/api/history` and `/api/visits`: if it is missing or
 unreadable those endpoints return empty and the dashboard falls back to its
 embedded snapshot, with no error surfaced.
 
+### Backing it up
+
+The archive is the **only** copy of this history — the cloud has already forgotten
+everything older than its ~30-day window, so a lost archive is lost for good. Set
+`[whisker].backup_dir` and hearth keeps dated full copies of it:
+
+```toml
+[whisker]
+backup_dir = "/mnt/other-disk/hearth-backups/whisker"
+backup_keep = 14   # 0 keeps every backup forever
+```
+
+One `visits-YYYY-MM-DD.jsonl` per UTC day, written atomically (temp file →
+`fsync` → rename, so a crash can't replace a good backup with a truncated one),
+chmod `0600`, then read back and record-counted to catch silent corruption.
+Oldest are pruned past `backup_keep`. Unset `backup_dir` means **no backups**.
+
+Copies are full and uncompressed on purpose: restoring is `cp`, and any single
+backup is independently readable in a text editor. At ~200 KB growing a few KB a
+day, the redundancy costs nothing worth optimizing.
+
+**Point it at a different physical disk** (or a mounted NAS). A backup on the
+archive's own disk survives a fat-finger but not a disk failure; hearth compares
+the two devices and logs a warning when they match, because that case otherwise
+looks like protection while providing none. None of this defends against losing
+the whole machine — for that, sync the backup dir somewhere off-site.
+
 ### Cat photos
 
 Optional — a missing photo degrades to an initial-circle, so the dashboard works

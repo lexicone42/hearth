@@ -102,7 +102,7 @@ pub struct VisitStore {
 
 impl VisitStore {
     /// The archive file name inside the configured directory.
-    const FILE_NAME: &'static str = "visits.jsonl";
+    pub(crate) const FILE_NAME: &'static str = "visits.jsonl";
 
     /// Open (or initialize) the archive under `dir`, creating the directory tree
     /// if needed. An existing `visits.jsonl` is read once to seed the seen-set; a
@@ -186,7 +186,7 @@ impl VisitStore {
 /// The archive holds personal pet/health data, so it's tightened after every
 /// append even if the file already existed with a looser umask — mirrors
 /// `restrict_to_owner` in [`crate::smartthings::auth`].
-fn restrict_to_owner(path: &Path) -> Result<()> {
+pub(crate) fn restrict_to_owner(path: &Path) -> Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

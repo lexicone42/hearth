@@ -197,6 +197,16 @@ pub struct WhiskerConfig {
     /// Defaults to `data/whisker`.
     #[serde(default)]
     pub history_dir: Option<PathBuf>,
+    /// Where to keep dated backups of the weight archive. Unset = no backups.
+    /// The archive is the ONLY copy of this history beyond ~30 days (Whisker's
+    /// cloud forgets the rest), so point this at a DIFFERENT physical disk or a
+    /// mounted NAS — hearth warns if it resolves to the archive's own device.
+    #[serde(default)]
+    pub backup_dir: Option<PathBuf>,
+    /// How many dated backups to retain (oldest pruned first). `0` keeps every
+    /// backup forever. Defaults to 14.
+    #[serde(default = "default_backup_keep")]
+    pub backup_keep: usize,
     /// Waste-drawer fullness (percent) at/above which a box's `needs_service`
     /// alert opens ("empty the drawer"). Defaults to 90.
     #[serde(default = "default_drawer_full_pct")]
@@ -205,6 +215,10 @@ pub struct WhiskerConfig {
     /// ("add litter"). Defaults to 10.
     #[serde(default = "default_litter_low_pct")]
     pub litter_low_pct: f64,
+}
+
+fn default_backup_keep() -> usize {
+    14
 }
 
 fn default_drawer_full_pct() -> f64 {
