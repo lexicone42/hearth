@@ -43,6 +43,72 @@ use crate::history::codec;
 /// `(entity id, epoch ms) -> encoded value`.
 const OBSERVATIONS: TableDefinition<(&str, i64), &[u8]> = TableDefinition::new("observations");
 
+/// One entity present in the history, and the span it covers.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct EntitySpan {
+    pub entity: String,
+    pub first_ms: i64,
+    pub last_ms: i64,
+}
+
+/// A read of one entity's history, already reduced to chart size.
+pub struct Series {
+    /// Chronological points, at most the caller's `max`.
+    pub points: Vec<(i64, Value)>,
+    /// How many stored points the range actually held, before reduction.
+    pub total: usize,
+    /// Whether reduction happened — so a client can say so rather than imply
+    /// it is looking at raw data.
+    pub downsampled: bool,
+}
+
+/// Accumulator for one downsampling bucket. Numbers average; flags and text
+/// keep their last value, having no meaningful mean.
+struct Bucket {
+    ts_sum: i128,
+    n: i64,
+    sum: f64,
+    unit: Option<crate::domain::Unit>,
+    last: Value,
+}
+
+impl Bucket {
+    fn new(at: i64, v: Value) -> Self {
+        let mut b = Bucket {
+            ts_sum: 0,
+            n: 0,
+            sum: 0.0,
+            unit: None,
+            last: v.clone(),
+        };
+        b.push(at, v);
+        b
+    }
+    fn push(&mut self, at: i64, v: Value) {
+        self.ts_sum += at as i128;
+        self.n += 1;
+        match &v {
+            Value::Quantity { value, unit } => {
+                self.sum += value;
+                self.unit = Some(*unit);
+            }
+            Value::Count(c) => self.sum += *c as f64,
+            _ => {}
+        }
+        self.last = v;
+    }
+    fn finish(self) -> (i64, Value) {
+        let ts = (self.ts_sum / self.n as i128) as i64;
+        let mean = self.sum / self.n as f64;
+        let value = match (&self.last, self.unit) {
+            (Value::Quantity { .. }, Some(unit)) => Value::Quantity { value: mean, unit },
+            (Value::Count(_), _) => Value::Count(mean.round() as i64),
+            _ => self.last,
+        };
+        (ts, value)
+    }
+}
+
 /// What the last write for an entity was, so we can skip unchanged values.
 #[derive(Debug, Clone)]
 struct Last {
@@ -170,6 +236,109 @@ impl HistoryStore {
             }
         }
         Ok(out)
+    }
+
+    /// Every entity that has history, with the span it covers.
+    ///
+    /// Deliberately **not** a full scan. Keys sort by `(entity, ts)`, so after
+    /// reading one entity's first key we seek straight past its whole range
+    /// rather than walking its points — `O(entities · log n)` instead of
+    /// `O(points)`. At two years' retention that's the difference between a
+    /// millisecond and reading millions of rows on every page load.
+    pub fn entities(&self) -> Result<Vec<EntitySpan>> {
+        let txn = self.db.begin_read().context("opening history read txn")?;
+        let table = txn
+            .open_table(OBSERVATIONS)
+            .context("opening observations table")?;
+
+        let mut out = Vec::new();
+        let mut cursor = String::new();
+        loop {
+            // First key at or after the cursor: the next entity's earliest point.
+            let (entity, first_ms) = {
+                let mut it = table
+                    .range((cursor.as_str(), i64::MIN)..)
+                    .context("seeking next entity")?;
+                match it.next() {
+                    Some(row) => {
+                        let (k, _) = row.context("reading history row")?;
+                        let (e, t) = k.value();
+                        (e.to_string(), t)
+                    }
+                    None => break,
+                }
+            };
+            // That entity's latest point, from the other end of its own range.
+            let last_ms = {
+                let mut it = table
+                    .range((entity.as_str(), i64::MIN)..=(entity.as_str(), i64::MAX))
+                    .context("seeking entity end")?;
+                match it.next_back() {
+                    Some(row) => row.context("reading history row")?.0.value().1,
+                    None => first_ms,
+                }
+            };
+            out.push(EntitySpan {
+                entity: entity.clone(),
+                first_ms,
+                last_ms,
+            });
+            // `\0` sorts above every printable char, so this lands on the next
+            // entity without walking this one's points.
+            cursor = entity + "\0";
+        }
+        Ok(out)
+    }
+
+    /// Points for `entity` in `[from_ms, to_ms]`, reduced to at most `max`.
+    ///
+    /// Downsamples while streaming — a chart wants a few hundred points, and a
+    /// two-year range holds far more than a fridge should ever have to parse.
+    /// Time is split into `max` buckets and each is averaged (numbers) or takes
+    /// its last value (flags and text, which have no meaningful mean), stamped
+    /// with the mean time of the points in it. A bucket holding a single point
+    /// therefore reproduces that point exactly, so a short range comes back
+    /// untouched. Returns `(points, total_in_range, downsampled)`.
+    pub fn series(&self, entity: &str, from_ms: i64, to_ms: i64, max: usize) -> Result<Series> {
+        let max = max.clamp(1, 5_000);
+        let txn = self.db.begin_read().context("opening history read txn")?;
+        let table = txn
+            .open_table(OBSERVATIONS)
+            .context("opening observations table")?;
+
+        let span = (to_ms - from_ms).max(1);
+        let mut buckets: Vec<Option<Bucket>> = (0..max).map(|_| None).collect();
+        let mut total = 0usize;
+
+        for row in table
+            .range((entity, from_ms)..=(entity, to_ms))
+            .context("scanning history range")?
+        {
+            let (k, v) = row.context("reading history row")?;
+            let (row_entity, at) = k.value();
+            if row_entity != entity {
+                break;
+            }
+            let Some(value) = codec::decode(v.value()) else {
+                warn!(entity, at, "skipping undecodable history point");
+                continue;
+            };
+            total += 1;
+            let idx = (((at - from_ms) as i128 * max as i128) / span as i128)
+                .clamp(0, max as i128 - 1) as usize;
+            match &mut buckets[idx] {
+                Some(b) => b.push(at, value),
+                slot @ None => *slot = Some(Bucket::new(at, value)),
+            }
+        }
+
+        let points: Vec<(i64, Value)> = buckets.into_iter().flatten().map(Bucket::finish).collect();
+        let downsampled = total > points.len();
+        Ok(Series {
+            points,
+            total,
+            downsampled,
+        })
     }
 
     /// Drop every point older than `cutoff_ms`. Returns how many were removed.
@@ -411,6 +580,80 @@ mod tests {
             points.iter().all(|(_, v)| *v != temp(98.0)),
             "an older timestamp must never be written after a newer one"
         );
+
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn entities_lists_every_entity_with_its_span() {
+        let path = temp_db("entities");
+        let store = HistoryStore::open(&path, Duration::from_secs(1)).unwrap();
+        // Names chosen so one is a strict PREFIX of another: the seek-skip must
+        // not step over `...temp` when jumping past `...tempera`.
+        let a = "ambient_weather.outdoor.temp";
+        let b = "ambient_weather.outdoor.temperature";
+        let c = "dyson.living.pm25";
+        store.record(&[obs(a, temp(1.0))], 1_000).unwrap();
+        store.record(&[obs(a, temp(2.0))], 5_000).unwrap();
+        store.record(&[obs(b, temp(3.0))], 2_000).unwrap();
+        store.record(&[obs(c, temp(4.0))], 3_000).unwrap();
+
+        let es = store.entities().unwrap();
+        let names: Vec<&str> = es.iter().map(|e| e.entity.as_str()).collect();
+        assert_eq!(
+            names,
+            vec![a, b, c],
+            "sorted, one row per entity, none skipped"
+        );
+        assert_eq!((es[0].first_ms, es[0].last_ms), (1_000, 5_000));
+        assert_eq!((es[1].first_ms, es[1].last_ms), (2_000, 2_000));
+
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn series_returns_exact_points_until_it_must_downsample() {
+        let path = temp_db("series");
+        let store = HistoryStore::open(&path, Duration::from_secs(1)).unwrap();
+        let e = "ambient_weather.outdoor.temperature";
+        for i in 0..100i64 {
+            store
+                .record(&[obs(e, temp(i as f64))], 1_000 + i * 1_000)
+                .unwrap();
+        }
+
+        // Room to spare: every point survives untouched.
+        let s = store.series(e, 0, 200_000, 500).unwrap();
+        let (pts, total, down) = (s.points, s.total, s.downsampled);
+        assert_eq!(total, 100);
+        assert_eq!(pts.len(), 100);
+        assert!(!down);
+        assert_eq!(pts[0].1, temp(0.0));
+        assert_eq!(pts[99].1, temp(99.0));
+
+        // Squeezed: fewer points, flagged, and still spanning the same range.
+        let s = store.series(e, 0, 200_000, 10).unwrap();
+        let (pts, total, down) = (s.points, s.total, s.downsampled);
+        assert_eq!(total, 100);
+        assert!(down && pts.len() <= 10 && !pts.is_empty());
+        assert!(
+            pts.windows(2).all(|w| w[0].0 < w[1].0),
+            "still chronological"
+        );
+        // Buckets average, so the reduced series stays inside the original range.
+        for (_, v) in &pts {
+            if let Value::Quantity { value, .. } = v {
+                assert!(
+                    (0.0..=99.0).contains(value),
+                    "bucket mean {value} out of range"
+                );
+            }
+        }
+
+        // A window with nothing in it is empty, not an error.
+        let s = store.series(e, 900_000, 950_000, 100).unwrap();
+        let (pts, total) = (s.points, s.total);
+        assert!(pts.is_empty() && total == 0);
 
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }

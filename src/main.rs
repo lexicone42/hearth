@@ -161,36 +161,6 @@ async fn run(
 ) -> Result<()> {
     let (tx, rx) = mpsc::channel::<Vec<Observation>>(BUS_CAPACITY);
 
-    // ----- Local API sink (only when `[api]` is configured) -----
-    // The store is written by the router and read by the HTTP task; the server
-    // failing (e.g. port taken) is logged, never fatal — API trouble must not
-    // take down the bridge.
-    let state = config.api.as_ref().map(|_| api::StateStore::new());
-    let api_server = match (&config.api, &state) {
-        (Some(api_cfg), Some(store)) => Some(tokio::spawn({
-            // The Whisker archive dir feeds `/api/history` (weight sparklines);
-            // `None` when Whisker isn't configured.
-            let history_dir = config
-                .whisker
-                .as_ref()
-                .map(|_| whisker_history_dir(&config));
-            // Cached cat photos for the dashboard gallery (gitignored data/cats/).
-            let assets_dir = PathBuf::from("data/cats");
-            let (api_cfg, store, system) = (api_cfg.clone(), store.clone(), config.unit_system);
-            async move {
-                if let Err(e) =
-                    api::server::serve(api_cfg, store, system, history_dir, assets_dir).await
-                {
-                    error!(error = ?e, "api server exited");
-                }
-            }
-        })),
-        _ => None,
-    };
-
-    // Router: the single owner of the sink(s) and the bus receiver. Every
-    // observation batch from every source flows through here, and this is the
-    // ONLY place `sink.publish` is called.
     // ----- Long-term history (only when `[history]` is configured) -----
     // Failing to open it disables history but never the hub: recording the past
     // is worth less than continuing to serve the present.
@@ -215,6 +185,38 @@ async fn run(
         }
         None => None,
     };
+
+    // ----- Local API sink (only when `[api]` is configured) -----
+    // The store is written by the router and read by the HTTP task; the server
+    // failing (e.g. port taken) is logged, never fatal — API trouble must not
+    // take down the bridge.
+    let state = config.api.as_ref().map(|_| api::StateStore::new());
+    let api_server = match (&config.api, &state) {
+        (Some(api_cfg), Some(store)) => Some(tokio::spawn({
+            // The Whisker archive dir feeds `/api/history` (weight sparklines);
+            // `None` when Whisker isn't configured.
+            let history_dir = config
+                .whisker
+                .as_ref()
+                .map(|_| whisker_history_dir(&config));
+            // Cached cat photos for the dashboard gallery (gitignored data/cats/).
+            let assets_dir = PathBuf::from("data/cats");
+            let hist = history.clone();
+            let (api_cfg, store, system) = (api_cfg.clone(), store.clone(), config.unit_system);
+            async move {
+                if let Err(e) =
+                    api::server::serve(api_cfg, store, system, history_dir, assets_dir, hist).await
+                {
+                    error!(error = ?e, "api server exited");
+                }
+            }
+        })),
+        _ => None,
+    };
+
+    // Router: the single owner of the sink(s) and the bus receiver. Every
+    // observation batch from every source flows through here, and this is the
+    // ONLY place `sink.publish` is called.
     // Retention only runs when a finite window is configured (`0` = keep all).
     let history_retention = match (&history, &config.history) {
         (Some(store), Some(cfg)) => Some(tokio::spawn(run_history_maintenance(
