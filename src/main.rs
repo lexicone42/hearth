@@ -1,5 +1,6 @@
 mod ambient;
 mod api;
+mod aqi;
 mod clock;
 mod config;
 mod domain;
@@ -228,6 +229,15 @@ async fn run(
         _ => None,
     };
 
+    // Derived observations: AQI from recorded pollutants (needs history).
+    let aqi_task = history.as_ref().map(|store| {
+        tokio::spawn(run_aqi(
+            store.clone(),
+            config.poll.interval_secs,
+            tx.clone(),
+        ))
+    });
+
     let router = tokio::spawn(router(rx, sink, state, history));
 
     // ----- Ambient source task (always present) -----
@@ -354,6 +364,9 @@ async fn run(
     if let Some(h) = history_retention {
         h.abort();
     }
+    if let Some(h) = aqi_task {
+        h.abort();
+    }
     for h in dyson_handles {
         h.abort();
     }
@@ -400,6 +413,81 @@ async fn router(
         }
     }
     debug!("event bus closed; router exiting");
+}
+
+/// Derived-observation task: computes EPA AQI from recorded pollutants and puts
+/// it back on the bus as `<source>.<node>.aqi`.
+///
+/// This is hearth's first source that reads from its own history rather than a
+/// device. It exists because AQI is defined on a **24-hour mean**, so an
+/// instantaneous "AQI" would be a category error — and averaging 24 hours is
+/// only possible now that everything is recorded. Neat consequence: the derived
+/// value flows through the same bus as everything else, so it lands in
+/// `/api/latest`, gets its own history, and could drive an alert later.
+///
+/// A 24-hour mean is exactly `series(.., max = 1)`: one bucket over the window.
+async fn run_aqi(
+    store: Arc<history::HistoryStore>,
+    interval_secs: u64,
+    tx: mpsc::Sender<Vec<Observation>>,
+) {
+    const DAY_MS: i64 = 86_400_000;
+    // AQI moves on a 24-hour mean, so recomputing faster than the poll interval
+    // buys nothing; every 10 minutes is already generous.
+    let period = Duration::from_secs(interval_secs.max(600));
+    let mut ticker = tokio::time::interval(period);
+    loop {
+        ticker.tick().await;
+        let store2 = store.clone();
+        let computed = tokio::task::spawn_blocking(move || {
+            let now = clock::now_ms();
+            let from = now - DAY_MS;
+            // A node qualifies if it has PM2.5 history; PM10 joins in when present.
+            let Ok(entities) = store2.entities() else {
+                return Vec::new();
+            };
+            let mut out: Vec<Observation> = Vec::new();
+            for span in entities.iter().filter(|e| e.entity.ends_with(".pm25")) {
+                let node = span.entity.trim_end_matches(".pm25");
+                let mean = |chan: &str| -> Option<f64> {
+                    let e = format!("{node}.{chan}");
+                    let s = store2.series(&e, from, now, 1).ok()?;
+                    s.points.first().and_then(|(_, v)| match v {
+                        domain::Value::Quantity { value, .. } => Some(*value),
+                        domain::Value::Count(n) => Some(*n as f64),
+                        _ => None,
+                    })
+                };
+                let Some(a) = aqi::overall(mean("pm25"), mean("pm10")) else {
+                    continue;
+                };
+                debug!(
+                    node,
+                    aqi = a.value,
+                    category = a.category.label(),
+                    driver = a.driver.label(),
+                    "computed AQI"
+                );
+                out.push(Observation::new(
+                    domain::EntityId::new([node, aqi::CHANNEL]),
+                    domain::DeviceClass::AirQualityIndex,
+                    domain::Value::Count(a.value as i64),
+                    None,
+                ));
+            }
+            out
+        })
+        .await
+        .unwrap_or_default();
+
+        if computed.is_empty() {
+            continue;
+        }
+        info!(count = computed.len(), "derived AQI observations");
+        if tx.send(computed).await.is_err() {
+            return; // router gone (shutdown)
+        }
+    }
 }
 
 /// History maintenance: every few hours, snapshot the database, drop points past

@@ -86,6 +86,12 @@ pub enum DeviceClass {
     /// A device's unit status as free text (e.g. a Litter-Robot's `Ready` /
     /// `Drawer Full` / `Offline`). No standard SmartThings mapping — local only.
     Status,
+    /// US EPA Air Quality Index (0–500), a unitless composite. Derived rather
+    /// than measured: computed from a 24-hour mean of PM2.5/PM10 out of the
+    /// history store, per EPA's breakpoints. No standard SmartThings mapping —
+    /// `airQualitySensor.airQuality` is already claimed by VOC, so this flows to
+    /// the local API sink / dashboard only.
+    AirQualityIndex,
     /// A binary "needs attention" signal ([`crate::domain::Value::Flag`]): `true`
     /// = something needs changing. Maps to SmartThings `contactSensor` (`open` =
     /// attention) so an in-app Routine can push a notification. First used for a
