@@ -180,6 +180,8 @@ authenticating reverse proxy in front.
 | `GET` | `/api/latest` | — | bearer | JSON — latest-value snapshot |
 | `GET` | `/api/history` | — | bearer | JSON — per-cat daily-median weight, last 10 days |
 | `GET` | `/api/visits` | `cat=<slug>` (**required**), `days=<n>` (default 30, capped at 60) | bearer | JSON — one cat's visits, chronological |
+| `GET` | `/api/entities` | — | bearer | JSON — entities with history, and their spans |
+| `GET` | `/api/series` | `entity=<id>` (**required**), `hours=<n>` or `from`/`to`, `max=<n>` | bearer | JSON — one entity's history, downsampled |
 | `GET` | `/assets/cats/{name}` | — | none | image bytes (`webp`/`png`/`jpeg`), `Cache-Control: public, max-age=86400` |
 | `GET` | `/healthz` | — | none | `text/plain` — `ok` |
 
@@ -255,6 +257,42 @@ visualization is a front-end change only.
 - `waste`, `duration` (seconds in the box) and `waste_weight` (grams) are `null`
   when the vendor feed didn't report them.
 - Returns `[]` for an unknown slug, or when `[whisker]` isn't configured.
+
+### `GET /api/entities`
+
+Every entity with recorded history and the span it covers — the catalogue a
+picker is built from. Cheap by construction: it seeks once per entity rather
+than scanning points, so it stays fast as the database grows.
+
+```json
+[{"entity": "ambient_weather.outdoor.temperature", "first_ms": 1769500000000, "last_ms": 1769600000000}]
+```
+
+Returns `[]` when `[history]` isn't configured.
+
+### `GET /api/series?entity=<id>&hours=<n>&max=<n>`
+
+One entity's recorded history. `hours` (default 24) sets a window ending now, or
+pass explicit `from`/`to` epoch-ms bounds. `max` (default 500, hard cap 5000) is
+the most points you want back.
+
+```json
+{
+  "entity": "ambient_weather.outdoor.temperature",
+  "from": 1769500000000, "to": 1769586400000,
+  "total": 4210, "downsampled": true, "unit": "°F",
+  "points": [[1769500060000, 69.1], [1769500660000, 68.8]]
+}
+```
+
+- The store **downsamples while streaming**: the window is split into `max`
+  buckets, each averaged (numbers) or taking its last value (flags and text,
+  which have no meaningful mean), stamped with the mean time of its points. A
+  bucket holding one point reproduces it exactly, so short ranges come back
+  untouched — and `downsampled` says which happened.
+- `unit` is lifted from the points so a client can label an axis without
+  inspecting them all; `null` for non-quantities.
+- `404` when `[history]` isn't configured.
 
 ### `GET /assets/cats/{name}`
 
