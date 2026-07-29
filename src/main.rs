@@ -1,6 +1,7 @@
 mod ambient;
 mod api;
 mod aqi;
+mod birdweather;
 mod clock;
 mod config;
 mod domain;
@@ -75,6 +76,7 @@ async fn main() -> Result<()> {
         whisker = config.whisker.is_some(),
         api = config.api.is_some(),
         history = config.history.is_some(),
+        birdweather = config.birdweather.is_some(),
         dyson = config.dyson.len(),
         mac = %config.ambient.mac_address,
         "starting hearth"
@@ -229,6 +231,24 @@ async fn run(
         _ => None,
     };
 
+    // BirdWeather source (only when `[birdweather]` is configured).
+    let birds = match &config.birdweather {
+        Some(cfg) => match birdweather::BirdWeatherClient::new(&cfg.token) {
+            Ok(c) => Some(tokio::spawn(run_birdweather(
+                Arc::new(c),
+                cfg.station.clone(),
+                config.poll.interval_secs,
+                history.clone(),
+                tx.clone(),
+            ))),
+            Err(e) => {
+                error!(error = ?e, "cannot build BirdWeather client — source disabled");
+                None
+            }
+        },
+        None => None,
+    };
+
     // Derived observations: AQI from recorded pollutants (needs history).
     let aqi_task = history.as_ref().map(|store| {
         tokio::spawn(run_aqi(
@@ -367,6 +387,9 @@ async fn run(
     if let Some(h) = aqi_task {
         h.abort();
     }
+    if let Some(h) = birds {
+        h.abort();
+    }
     for h in dyson_handles {
         h.abort();
     }
@@ -413,6 +436,131 @@ async fn router(
         }
     }
     debug!("event bus closed; router exiting");
+}
+
+/// BirdWeather source: archives detections as events and publishes the day's
+/// summary onto the bus.
+///
+/// Catches up by **time**, not cursor: the API returns no cursor and caps `limit`
+/// at 100, but honours `from` — and the event table's own newest timestamp is a
+/// natural watermark. Overlap is deliberate (it re-asks from slightly before the
+/// watermark) because the event index dedups by detection id, so re-fetching
+/// costs nothing and nothing slips through a boundary.
+///
+/// Detections go only to the local archive. Only counts and the latest species
+/// name reach the bus — a yard microphone's clip URLs are the owner's business
+/// and hearth never forwards them anywhere.
+async fn run_birdweather(
+    client: Arc<birdweather::BirdWeatherClient>,
+    station: String,
+    interval_secs: u64,
+    history: Option<Arc<history::HistoryStore>>,
+    tx: mpsc::Sender<Vec<Observation>>,
+) {
+    const DAY_MS: i64 = 86_400_000;
+    let base = Duration::from_secs(interval_secs.max(300));
+    let max_backoff = Duration::from_secs(30 * 60);
+    let mut failures: u32 = 0;
+
+    loop {
+        let now = clock::now_ms();
+        // Re-ask from a little before what we already have, so a detection
+        // written right on the boundary can't be missed.
+        let watermark = history
+            .as_ref()
+            .and_then(|h| h.event_stats(birdweather::SOURCE).ok())
+            .and_then(|(_, newest)| newest)
+            .map(|ts| ts - 60_000);
+        let from = clock::iso_utc(watermark.unwrap_or(now - DAY_MS));
+
+        match client.detections(Some(&from), 100).await {
+            Ok(detections) => {
+                failures = 0;
+                // Archive first: the record outlives any summary we derive.
+                if let Some(h) = &history {
+                    let events: Vec<history::store::StoredEvent> = detections
+                        .iter()
+                        .filter_map(|d| {
+                            let ts = d.timestamp.as_deref().and_then(birdweather::parse_ts)?;
+                            Some(history::store::StoredEvent {
+                                ts_ms: ts,
+                                id: d.id.to_string(),
+                                blob: serde_json::to_vec(&serde_json::json!({
+                                    "id": d.id,
+                                    "ts": d.timestamp,
+                                    "species": d.species.common_name,
+                                    "scientific": d.species.scientific_name,
+                                    "species_id": d.species.id,
+                                    // `avian` vs anything else — a PUC also
+                                    // reports bats, and that's worth keeping.
+                                    "classification": d.species.classification,
+                                    "confidence": d.confidence,
+                                    "probability": d.probability,
+                                    "score": d.score,
+                                    "certainty": d.certainty,
+                                    "color": d.species.color,
+                                    "thumbnail": d.species.thumbnail_url,
+                                    // Local only — never leaves this database.
+                                    "clip": d.soundscape.as_ref().and_then(|s| s.url.clone()),
+                                }))
+                                .ok()?,
+                            })
+                        })
+                        .collect();
+                    match h.record_events(birdweather::SOURCE, &events) {
+                        Ok(0) => {}
+                        Ok(n) => info!(new = n, "archived bird detections"),
+                        Err(e) => warn!(error = ?e, "failed to archive bird detections"),
+                    }
+                }
+
+                // Today's summary, counted from the archive when we have one so a
+                // single poll window can't undercount the day.
+                let midnight = clock::iso_utc(now - DAY_MS);
+                let species_today = match client.species_since(&midnight).await {
+                    Ok(s) => s.len(),
+                    Err(e) => {
+                        debug!(error = ?e, "bird species lookup failed; using detections only");
+                        0
+                    }
+                };
+                let detections_today = history
+                    .as_ref()
+                    .and_then(|h| {
+                        h.events(birdweather::SOURCE, now - DAY_MS, now, 10_000)
+                            .ok()
+                    })
+                    .map(|v| v.len())
+                    .unwrap_or(detections.len());
+
+                let obs = birdweather::to_observations(
+                    &station,
+                    species_today,
+                    detections_today,
+                    detections.first(),
+                );
+                info!(
+                    species_today,
+                    detections_today,
+                    latest = detections
+                        .first()
+                        .map(|d| d.species.common_name.as_str())
+                        .unwrap_or("-"),
+                    "mapped BirdWeather observations"
+                );
+                if tx.send(obs).await.is_err() {
+                    return; // router gone
+                }
+                tokio::time::sleep(base).await;
+            }
+            Err(e) => {
+                failures += 1;
+                let delay = backoff_delay(base, max_backoff, failures);
+                warn!(error = ?e, retry_in_s = delay.as_secs(), "BirdWeather fetch failed");
+                tokio::time::sleep(delay).await;
+            }
+        }
+    }
 }
 
 /// Derived-observation task: computes EPA AQI from recorded pollutants and puts

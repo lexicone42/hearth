@@ -43,6 +43,33 @@ use crate::history::codec;
 /// `(entity id, epoch ms) -> encoded value`.
 const OBSERVATIONS: TableDefinition<(&str, i64), &[u8]> = TableDefinition::new("observations");
 
+/// `(source, ts_ms, id) -> JSON blob` — discrete events, time-ordered per source.
+///
+/// The second half of the data model. An *observation* is one scalar sample of
+/// one channel; an *event* is a thing that happened carrying several correlated
+/// fields (a bird detection: species, confidence, score, clip; a litter-box
+/// visit: cat, weight, waste, duration). Splitting an event into independent
+/// observations throws away the correlation that makes it useful, so events get
+/// their own table — in the same database, so one file, one backup, one snapshot
+/// covers everything.
+const EVENTS: TableDefinition<(&str, i64, &str), &[u8]> = TableDefinition::new("events");
+
+/// `(source, id) -> ts_ms` — the dedup index.
+///
+/// The main table is keyed for *time* scans, which makes "have I already stored
+/// event X?" a scan rather than a lookup. This index answers it in `O(log n)`,
+/// so re-fetching an overlapping window (which every polling source does) is
+/// cheap and idempotent no matter how large the archive grows.
+const EVENT_IDS: TableDefinition<(&str, &str), i64> = TableDefinition::new("event_ids");
+
+/// One stored event: when it happened, its source-assigned id, and its payload.
+#[derive(Debug, Clone)]
+pub struct StoredEvent {
+    pub ts_ms: i64,
+    pub id: String,
+    pub blob: Vec<u8>,
+}
+
 /// One entity present in the history, and the span it covers.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct EntitySpan {
@@ -236,6 +263,96 @@ impl HistoryStore {
             }
         }
         Ok(out)
+    }
+
+    /// Append events for `source`, skipping any whose id is already stored.
+    /// Returns how many were new — so a source can re-fetch an overlapping
+    /// window every poll and this stays idempotent.
+    pub fn record_events(&self, source: &str, events: &[StoredEvent]) -> Result<usize> {
+        if events.is_empty() {
+            return Ok(0);
+        }
+        let txn = self.db.begin_write().context("opening events write txn")?;
+        let mut written = 0usize;
+        {
+            let mut ids = txn.open_table(EVENT_IDS).context("opening event index")?;
+            let mut tbl = txn.open_table(EVENTS).context("opening events table")?;
+            for e in events {
+                if ids
+                    .get((source, e.id.as_str()))
+                    .context("checking event index")?
+                    .is_some()
+                {
+                    continue; // already have it
+                }
+                tbl.insert((source, e.ts_ms, e.id.as_str()), e.blob.as_slice())
+                    .context("writing event")?;
+                ids.insert((source, e.id.as_str()), e.ts_ms)
+                    .context("indexing event")?;
+                written += 1;
+            }
+        }
+        txn.commit().context("committing events")?;
+        Ok(written)
+    }
+
+    /// Events for `source` in `[from_ms, to_ms]`, newest first, capped at `limit`.
+    /// Newest-first because every consumer of an event log wants the recent end.
+    pub fn events(
+        &self,
+        source: &str,
+        from_ms: i64,
+        to_ms: i64,
+        limit: usize,
+    ) -> Result<Vec<StoredEvent>> {
+        let txn = self.db.begin_read().context("opening events read txn")?;
+        let table = match txn.open_table(EVENTS) {
+            Ok(t) => t,
+            // Nothing has ever been written; an empty log is not an error.
+            Err(_) => return Ok(Vec::new()),
+        };
+        let mut out = Vec::new();
+        let mut it = table
+            .range((source, from_ms, "")..=(source, to_ms, "\u{10FFFF}"))
+            .context("scanning events")?;
+        while out.len() < limit {
+            let Some(row) = it.next_back() else { break };
+            let (k, v) = row.context("reading event row")?;
+            let (row_source, ts, id) = k.value();
+            if row_source != source {
+                break;
+            }
+            out.push(StoredEvent {
+                ts_ms: ts,
+                id: id.to_string(),
+                blob: v.value().to_vec(),
+            });
+        }
+        Ok(out)
+    }
+
+    /// `(events stored, newest ts)` for one source — a source uses the timestamp
+    /// as a watermark so it only asks upstream for what it hasn't seen.
+    pub fn event_stats(&self, source: &str) -> Result<(usize, Option<i64>)> {
+        let txn = self.db.begin_read().context("opening events read txn")?;
+        let Ok(table) = txn.open_table(EVENTS) else {
+            return Ok((0, None));
+        };
+        let mut n = 0usize;
+        let mut newest = None;
+        for row in table
+            .range((source, i64::MIN, "")..=(source, i64::MAX, "\u{10FFFF}"))
+            .context("scanning events")?
+        {
+            let (k, _) = row.context("reading event row")?;
+            let (row_source, ts, _) = k.value();
+            if row_source != source {
+                break;
+            }
+            n += 1;
+            newest = Some(ts);
+        }
+        Ok((n, newest))
     }
 
     /// Every entity that has history, with the span it covers.

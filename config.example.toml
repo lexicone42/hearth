@@ -106,6 +106,22 @@ interval_secs = 60
 # # product_type = "438"                 # e.g. 438 = Pure Cool
 # # credential = "..."                   # the already-derived MQTT password
 
+# Optional: enable the BirdWeather source — a PUC listening station that
+# identifies bird (and bat) calls with BirdNET. Omit to disable.
+#
+# Auth is a station token. NOTE reads also work with the bare station NUMBER,
+# which is how BirdWeather's public map exists — so if your station is public,
+# the "token" here can just be that number and is not a secret. A private
+# station needs the real token from the app's station settings.
+#
+# Detections are archived locally as EVENTS (species, confidence, score, clip
+# URL) in the [history] database. Only summaries ride the bus: species_today,
+# detections_today and latest_species. Soundscape/clip URLs stay in the local
+# archive and are never surfaced by hearth's API or dashboard.
+# [birdweather]
+# token = "your-station-token-or-number"
+# station = "2410"   # label for the entity node: birdweather.<station>.*
+
 # Optional: record long-term history of EVERY observation, from every source,
 # to an embedded redb database. Omit this whole section to record nothing.
 # Nothing else in hearth remembers yesterday — `/api/latest` only holds the
