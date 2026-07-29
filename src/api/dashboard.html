@@ -122,6 +122,20 @@
   .bit .v { color: var(--ink); font-family: var(--mono); font-variant-numeric: tabular-nums; }
   .bit .norm { color: var(--faint); }
   .bit.off .v { color: var(--warn); }
+  /* AQI hero */
+  .aqi { display: flex; flex-direction: column; gap: 12px; border-width: 1.5px; }
+  .aqi-n { font-family: var(--mono); font-size: 54px; font-weight: 700; line-height: 1;
+    font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .aqi { position: relative; }
+  .aqi-meta { display: flex; flex-direction: column; gap: 3px; }
+  .aqi-cat { font-size: 17px; font-weight: 700; }
+  .aqi-sub { font-size: 12px; color: var(--muted); }
+  .aqi-sub em { color: var(--faint); font-style: normal; }
+  .aqi-scale { position: relative; display: flex; gap: 2px; height: 8px; }
+  .aqi-seg { flex: 1; border-radius: 3px; opacity: .5; }
+  .aqi-mark { position: absolute; top: -3px; width: 3px; height: 14px; border-radius: 2px;
+    background: var(--ink); box-shadow: 0 0 0 2px var(--bg-2); transform: translateX(-1.5px); }
+
   /* explore */
   .m.tappable { cursor: pointer; }
   .m.tappable:hover { border: 1px solid var(--hair); }
@@ -321,7 +335,7 @@ var VIEWS = [
   { id: "cats", label: "Cats", show: function (m) { return m.cats.length > 0; }, render: renderCats },
   { id: "gallery", label: "Gallery", show: function (m) { return m.cats.length > 0; }, render: renderGallery },
   { id: "weather", label: "Weather", show: function (m) { return !!m.nodes.ambient_weather; }, render: function (m, r) { renderMetrics(m, r, "ambient_weather"); } },
-  { id: "air", label: "Air", show: function (m) { return !!m.nodes.dyson; }, render: function (m, r) { renderMetrics(m, r, "dyson"); } },
+  { id: "air", label: "Air", show: function (m) { return !!m.nodes.dyson; }, render: renderAir },
   { id: "explore", label: "Explore", show: function () { return true; }, render: function (m, r) { renderExplore(r, null); } }
 ];
 var current = (location.hash.replace(/^#\/?/, "") || "overview");
@@ -435,6 +449,115 @@ function renderCats(m, root) {
     card.appendChild(el("div", "cat-foot", '<span class="trend ' + dir + '">' + arrow + '</span><span class="visits">full history ›</span>'));
     linkToCat(card, c.slug);
     root.appendChild(card);
+  });
+  setVerdict(countAttention(m));
+}
+
+/* ---------- AIR: the EPA index as the headline ----------
+   hearth computes a real US EPA AQI in Rust (24-hour mean, per the standard) and
+   publishes it as `<node>.aqi`. The page's job is only to present it: the score,
+   what that means for a person, and which pollutant set it — since the max
+   sub-index IS the driver, that last part is the actionable half. */
+var AQI_BANDS = [
+  { max: 50,  label: "Good",                           color: "var(--good)" },
+  { max: 100, label: "Moderate",                       color: "var(--warn)" },
+  { max: 150, label: "Unhealthy for Sensitive Groups", color: "#e8843c" },
+  { max: 200, label: "Unhealthy",                      color: "var(--crit)" },
+  { max: 300, label: "Very Unhealthy",                 color: "#b05ce0" },
+  { max: 1e9, label: "Hazardous",                      color: "#a13b3b" }
+];
+function aqiBand(v) {
+  for (var i = 0; i < AQI_BANDS.length; i++) if (v <= AQI_BANDS[i].max) return AQI_BANDS[i];
+  return AQI_BANDS[AQI_BANDS.length - 1];
+}
+/* EPA sub-index, mirrored from src/aqi.rs so the page can name the driver and
+   show each pollutant's contribution. Kept deliberately small: the authoritative
+   copy is the Rust one, which publishes the number this page displays. */
+var AQI_BP = {
+  pm25: [[0,9,0,50],[9.1,35.4,51,100],[35.5,55.4,101,150],[55.5,125.4,151,200],[125.5,225.4,201,300],[225.5,325.4,301,500]],
+  pm10: [[0,54,0,50],[55,154,51,100],[155,254,101,150],[255,354,151,200],[355,424,201,300],[425,604,301,500]]
+};
+function subIndex(kind, conc) {
+  if (typeof conc !== "number" || !isFinite(conc) || conc < 0) return null;
+  var c = kind === "pm25" ? Math.floor(conc * 10) / 10 : Math.floor(conc);
+  var bands = AQI_BP[kind];
+  for (var i = 0; i < bands.length; i++) {
+    var b = bands[i];
+    if (c <= b[1]) { var cc = Math.max(c, b[0]);
+      return Math.round((b[3] - b[2]) / (b[1] - b[0]) * (cc - b[0]) + b[2]); }
+  }
+  return 500;
+}
+
+function renderAir(m, root) {
+  var group = m.nodes.dyson || {};
+  var nodes = Object.keys(group).sort();
+  if (!nodes.length) { root.appendChild(el("div", "empty", "No air data yet.")); return; }
+
+  nodes.forEach(function (node) {
+    var ch = group[node];
+    var num = function (c) { return ch[c] ? Number(ch[c].value) : null; };
+    var pm25 = num("pm25"), pm10 = num("pm10");
+    // Prefer hearth's own computed index; fall back to a local estimate only if
+    // the AQI task hasn't produced one yet (fresh install, no 24h of history).
+    var published = ch[ "aqi" ] ? Math.round(Number(ch["aqi"].value)) : null;
+    var i25 = subIndex("pm25", pm25), i10 = subIndex("pm10", pm10);
+    var localMax = Math.max(i25 == null ? -1 : i25, i10 == null ? -1 : i10);
+    var score = published != null ? published : (localMax >= 0 ? localMax : null);
+    var driver = (i10 != null && i10 > (i25 == null ? -1 : i25)) ? "PM10" : (i25 != null ? "PM2.5" : null);
+
+    var g = el("div", "grp");
+    g.appendChild(el("div", "grp-title", esc(pretty(node)) +
+      '<span class="tag">dyson.' + esc(node) + '</span>'));
+
+    if (score != null) {
+      var band = aqiBand(score);
+      var hero = el("div", "card aqi");
+      hero.style.borderColor = band.color;
+      hero.innerHTML =
+        '<div class="aqi-n" style="color:' + band.color + '">' + score + '</div>' +
+        '<div class="aqi-meta">' +
+          '<div class="aqi-cat" style="color:' + band.color + '">' + esc(band.label) + '</div>' +
+          '<div class="aqi-sub">US EPA Air Quality Index' +
+            (driver ? ' · driven by <b>' + esc(driver) + '</b>' : '') +
+            (published == null ? ' · <em>estimated from the latest reading</em>' : ' · 24-hour mean') +
+          '</div>' +
+        '</div>';
+      // The scale, with a marker where this reading sits.
+      var scale = el("div", "aqi-scale");
+      AQI_BANDS.slice(0, 5).forEach(function (b) {
+        var seg = el("div", "aqi-seg"); seg.style.background = b.color; seg.title = b.label;
+        scale.appendChild(seg);
+      });
+      var mark = el("div", "aqi-mark");
+      mark.style.left = Math.min(100, (score / 300) * 100) + "%";
+      scale.appendChild(mark);
+      hero.appendChild(scale);
+      g.appendChild(hero);
+    }
+
+    // Pollutants, each with its own sub-index so you can see what's contributing.
+    var card = el("div", "card"), grid = el("div", "metrics");
+    [["pm25", "PM2.5", i25], ["pm10", "PM10", i10]].forEach(function (t) {
+      var e = ch[t[0]]; if (!e) return;
+      var mm = metric(t[1], e, "");
+      if (t[2] != null) {
+        var b = aqiBand(t[2]);
+        var sub = el("div", "sub"); sub.innerHTML = 'AQI <b style="color:' + b.color + '">' + t[2] + '</b>';
+        mm.appendChild(sub);
+      }
+      grid.appendChild(mm);
+    });
+    // Everything else the unit reports, unranked (VOC/NO2 have no EPA index here).
+    Object.keys(ch).sort().forEach(function (c) {
+      if (c === "pm25" || c === "pm10" || c === "aqi") return;
+      var e = ch[c];
+      if (e.class === "BatteryLow" || e.class === "Timestamp") return;
+      grid.appendChild(metric(pretty(c), e, ""));
+    });
+    card.appendChild(grid);
+    g.appendChild(card);
+    root.appendChild(g);
   });
   setVerdict(countAttention(m));
 }
