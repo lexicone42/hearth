@@ -77,6 +77,7 @@ pub async fn serve(
         .route("/api/visits", get(visits))
         .route("/api/entities", get(entities))
         .route("/api/series", get(series))
+        .route("/api/events", get(events))
         .route("/assets/cats/{name}", get(cat_photo))
         .route("/healthz", get(healthz))
         .with_state(state);
@@ -279,6 +280,61 @@ fn value_json(v: &crate::domain::Value) -> serde_json::Value {
         V::Count(n) => serde_json::json!(n),
         V::Flag(b) => serde_json::json!(b),
         V::Text(s) => serde_json::json!(s),
+    }
+}
+
+/// Query for `/api/events`.
+#[derive(serde::Deserialize)]
+struct EventsQuery {
+    source: String,
+    #[serde(default = "default_event_hours")]
+    hours: f64,
+    #[serde(default = "default_event_limit")]
+    limit: usize,
+}
+fn default_event_hours() -> f64 {
+    24.0
+}
+fn default_event_limit() -> usize {
+    200
+}
+
+/// `GET /api/events?source=<s>&hours=<n>&limit=<n>` — archived events for one
+/// source, newest first. Each event's stored payload is spliced out alongside its
+/// timestamp and id, so a client sees one flat object per event.
+async fn events(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<EventsQuery>,
+) -> Response {
+    if !authorized(&state.token, &headers) {
+        return (StatusCode::UNAUTHORIZED, "unauthorized\n").into_response();
+    }
+    let Some(store) = &state.history else {
+        return Json(Vec::<serde_json::Value>::new()).into_response();
+    };
+    let now = crate::clock::now_ms();
+    let from = now - (q.hours.clamp(0.1, 24.0 * 400.0) * 3_600_000.0) as i64;
+    match store.events(&q.source, from, now, q.limit.clamp(1, 2_000)) {
+        Ok(list) => {
+            let out: Vec<serde_json::Value> = list
+                .into_iter()
+                .map(|e| {
+                    let mut v = serde_json::from_slice::<serde_json::Value>(&e.blob)
+                        .unwrap_or_else(|_| serde_json::json!({}));
+                    if let Some(o) = v.as_object_mut() {
+                        o.insert("ts_ms".into(), serde_json::json!(e.ts_ms));
+                        o.insert("event_id".into(), serde_json::json!(e.id));
+                    }
+                    v
+                })
+                .collect();
+            Json(out).into_response()
+        }
+        Err(e) => {
+            warn!(error = ?e, source = %q.source, "events read failed");
+            (StatusCode::INTERNAL_SERVER_ERROR, "events unavailable\n").into_response()
+        }
     }
 }
 
