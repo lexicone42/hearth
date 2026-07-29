@@ -136,6 +136,25 @@
   .aqi-mark { position: absolute; top: -3px; width: 3px; height: 14px; border-radius: 2px;
     background: var(--ink); box-shadow: 0 0 0 2px var(--bg-2); transform: translateX(-1.5px); }
 
+  /* birds */
+  .bird { display: flex; align-items: center; gap: 12px; padding: 10px 12px; }
+  .bird-pic { width: 52px; height: 52px; border-radius: 10px; overflow: hidden; flex: none; background: var(--bg-3); }
+  .bird-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .bird-mid { flex: 1; min-width: 0; }
+  .bird-name { font-size: 15px; font-weight: 650; display: flex; align-items: center; gap: 7px; }
+  .bird-sci { font-size: 11.5px; color: var(--faint); font-style: italic; }
+  .bird-right { text-align: right; flex: none; }
+  .bird-n { font-family: var(--mono); font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .bird-sub { font-size: 10.5px; color: var(--faint); font-family: var(--mono); }
+
+  /* Smooth view swaps (View Transitions API). Skipped where unsupported. */
+  @media (prefers-reduced-motion: no-preference) {
+    ::view-transition-old(root) { animation: vt-out .18s ease both; }
+    ::view-transition-new(root) { animation: vt-in .22s ease both; }
+  }
+  @keyframes vt-out { to { opacity: 0; transform: translateY(-4px); } }
+  @keyframes vt-in { from { opacity: 0; transform: translateY(6px); } }
+
   /* explore */
   .m.tappable { cursor: pointer; }
   .m.tappable:hover { border: 1px solid var(--hair); }
@@ -334,6 +353,7 @@ var VIEWS = [
   { id: "overview", label: "Overview", show: function () { return true; }, render: renderOverview },
   { id: "cats", label: "Cats", show: function (m) { return m.cats.length > 0; }, render: renderCats },
   { id: "gallery", label: "Gallery", show: function (m) { return m.cats.length > 0; }, render: renderGallery },
+  { id: "birds", label: "Birds", show: function (m) { return !!m.nodes.birdweather; }, render: renderBirds },
   { id: "weather", label: "Weather", show: function (m) { return !!m.nodes.ambient_weather; }, render: function (m, r) { renderMetrics(m, r, "ambient_weather"); } },
   { id: "air", label: "Air", show: function (m) { return !!m.nodes.dyson; }, render: renderAir },
   { id: "explore", label: "Explore", show: function () { return true; }, render: function (m, r) { renderExplore(r, null); } }
@@ -374,6 +394,18 @@ function esc(s) {
   });
 }
 function paint(m) {
+  // The View Transitions API animates the DOM swap for free — a genuine
+  // native-feeling cross-fade between views, with no library and no risk: where
+  // it's unsupported the callback just runs directly.
+  if (document.startViewTransition && !PAINTING) {
+    PAINTING = true;
+    try { document.startViewTransition(function () { PAINTING = false; paintNow(m); }); return; }
+    catch (e) { PAINTING = false; }
+  }
+  paintNow(m);
+}
+var PAINTING = false;
+function paintNow(m) {
   LAST = m;
   var r = route();
   current = r.view === "cat" ? "cats" : r.view;
@@ -451,6 +483,238 @@ function renderCats(m, root) {
     root.appendChild(card);
   });
   setVerdict(countAttention(m));
+}
+
+/* ================= BIRDS =================
+   Reads hearth's own event archive (`/api/events?source=birdweather`), not
+   BirdWeather — so the tab keeps working if their API is down, and hearth stays
+   the single source of truth for what it has recorded.
+
+   Deliberately absent: the soundscape clips. hearth archives their URLs locally
+   but never surfaces them, because a yard microphone's audio is the owner's
+   business. Species, counts and timing are the interesting part anyway. */
+var BW = { events: null, range: 24, busy: false };
+var BW_RANGES = [{ h: 24, label: "today" }, { h: 72, label: "3d" }, { h: 168, label: "7d" }, { h: 720, label: "30d" }];
+
+function renderBirds(m, root) {
+  var wrap = el("div", "grp");
+  root.appendChild(wrap);
+  function draw() { wrap.innerHTML = ""; birdsBody(m, wrap, draw); }
+  draw();
+  if (BW.events === null && !BW.busy) {
+    BW.busy = true;
+    loadBirds(draw);
+  }
+  setVerdict(countAttention(m));
+}
+function loadBirds(done) {
+  var h = BW.range;
+  apiGet("/api/events?source=birdweather&hours=" + h + "&limit=2000")
+    .then(function (list) { BW.events = Array.isArray(list) ? list : []; })
+    .catch(function () { BW.events = []; })
+    .then(function () { BW.busy = false; if (BW.range === h) done(); });
+}
+
+function birdsBody(m, root, redraw) {
+  // Live counters straight off the bus.
+  var node = null;
+  Object.keys(m.nodes.birdweather || {}).forEach(function (n) { node = n; });
+  var live = node ? m.nodes.birdweather[node] : {};
+  var head = el("div", "grp-title", "Birds");
+  var bar = el("div", "mpick");
+  BW_RANGES.forEach(function (r) {
+    var b = el("button", "mbtn" + (r.h === BW.range ? " on" : ""), r.label);
+    b.type = "button";
+    b.addEventListener("click", function () {
+      BW.range = r.h; BW.events = null; BW.busy = true; redraw(); loadBirds(redraw);
+    });
+    bar.appendChild(b);
+  });
+  head.appendChild(bar);
+  root.appendChild(head);
+
+  if (live.species_today || live.detections_today) {
+    var hero = el("div", "metrics");
+    if (live.species_today) hero.appendChild(metric("Species today", live.species_today, ""));
+    if (live.detections_today) hero.appendChild(metric("Detections today", live.detections_today, ""));
+    if (live.latest_species) hero.appendChild(metric("Latest", live.latest_species, ""));
+    root.appendChild(hero);
+  }
+
+  var evs = BW.events;
+  if (evs === null) { root.appendChild(el("div", "empty", "Loading detections…")); return; }
+  if (!evs.length) {
+    root.appendChild(el("div", "empty",
+      "No detections archived yet in this window. hearth records them as it polls, so this fills in over time."));
+    return;
+  }
+
+  // ---- who's about, ranked, with each species' best confidence ----
+  var by = {};
+  evs.forEach(function (e) {
+    var k = e.species || "Unknown";
+    var s = by[k] || (by[k] = { name: k, sci: e.scientific || "", color: e.color || "var(--brass)",
+      thumb: e.thumbnail || null, n: 0, best: 0, last: 0, cls: e.classification || "avian" });
+    s.n++;
+    if ((e.confidence || 0) > s.best) s.best = e.confidence || 0;
+    if ((e.ts_ms || 0) > s.last) s.last = e.ts_ms;
+    if (!s.thumb && e.thumbnail) s.thumb = e.thumbnail;
+  });
+  var species = Object.keys(by).map(function (k) { return by[k]; })
+    .sort(function (a, b) { return b.n - a.n; });
+
+  var g1 = el("div", "grp");
+  g1.appendChild(el("div", "grp-title", "Who's about",
+    el("span", "tag", species.length + " species · " + evs.length + " detections")));
+  var list = el("div", "grp"); list.style.gap = "8px";
+  var maxN = species[0].n;
+  species.forEach(function (s) {
+    var row = el("div", "card bird");
+    var img = el("div", "bird-pic");
+    if (s.thumb) {
+      var i = document.createElement("img");
+      i.alt = s.name; i.src = s.thumb; i.loading = "lazy";
+      i.onerror = function () { if (i.parentNode) img.removeChild(i); img.style.background = s.color; };
+      img.appendChild(i);
+    } else { img.style.background = s.color; }
+    row.appendChild(img);
+
+    var mid = el("div", "bird-mid");
+    var nm = el("div", "bird-name"); nm.textContent = s.name;
+    if (s.cls && s.cls !== "avian") nm.appendChild(el("span", "tag", esc(s.cls)));
+    mid.appendChild(nm);
+    var sci = el("div", "bird-sci"); sci.textContent = s.sci; mid.appendChild(sci);
+    var track = el("div", "bt"); track.style.marginTop = "5px";
+    var fill = el("div");
+    fill.style.cssText = "height:100%;width:" + Math.max(4, (s.n / maxN) * 100) + "%;background:" + s.color + ";opacity:.9;";
+    track.appendChild(fill); mid.appendChild(track);
+    row.appendChild(mid);
+
+    var right = el("div", "bird-right");
+    right.innerHTML = '<div class="bird-n">' + s.n + '</div>' +
+      '<div class="bird-sub">' + Math.round(s.best * 100) + '% best</div>' +
+      '<div class="bird-sub">' + esc(ago(new Date(s.last).toISOString()) || "") + '</div>';
+    row.appendChild(right);
+    list.appendChild(row);
+  });
+  g1.appendChild(list); root.appendChild(g1);
+
+  // ---- when they call: a 24-hour clock, not a bar chart ----
+  // Bird activity is *cyclical* — it peaks at dawn, wraps at midnight, and a bar
+  // chart cuts that circle in an arbitrary place. Drawing it as a clock face puts
+  // dawn where dawn is and makes the dawn chorus a shape you recognise.
+  var hours = new Array(24).fill(0);
+  evs.forEach(function (e) { var d = new Date(e.ts_ms); if (!isNaN(d)) hours[d.getHours()]++; });
+  var hmax = Math.max.apply(null, hours) || 1;
+  var g2 = el("div", "grp");
+  g2.appendChild(el("div", "grp-title", "When they call",
+    el("span", "tag", "24-hour clock · local time")));
+  var c2 = el("div", "card");
+  c2.appendChild(clockDial(hours, hmax));
+  c2.appendChild(el("div", "minmax",
+    '<span>peak <b>' + hours.indexOf(hmax) + ':00</b> (' + hmax + ' detections)</span>' +
+    '<span style="color:var(--brass)">■ dawn 4–9</span>' +
+    '<span style="color:var(--faint)">midnight at top</span>'));
+  g2.appendChild(c2); root.appendChild(g2);
+
+  // ---- most recent, as a log ----
+  var g3 = el("div", "grp");
+  g3.appendChild(el("div", "grp-title", "Recent detections"));
+  var c3 = el("div", "card"); c3.style.overflowX = "auto";
+  var t = el("table", "ex-table");
+  t.innerHTML = "<thead><tr><th>time</th><th>species</th><th>conf</th></tr></thead>";
+  var tb = document.createElement("tbody");
+  evs.slice(0, 40).forEach(function (e) {
+    var tr = document.createElement("tr");
+    var a = document.createElement("td");
+    a.textContent = new Date(e.ts_ms).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    var b = document.createElement("td"); b.textContent = e.species || "—";
+    var c = document.createElement("td");
+    c.textContent = e.confidence != null ? Math.round(e.confidence * 100) + "%" : "—";
+    tr.appendChild(a); tr.appendChild(b); tr.appendChild(c); tb.appendChild(tr);
+  });
+  t.appendChild(tb); c3.appendChild(t);
+  c3.appendChild(el("div", "minmax", '<span>newest first · ' + Math.min(40, evs.length) + ' of ' + evs.length + '</span>'));
+  g3.appendChild(c3); root.appendChild(g3);
+}
+
+/* A 24-hour polar histogram on canvas: each hour is a wedge whose length is that
+   hour's detection count. Canvas (not SVG) because the wedges animate in on
+   first paint and a canvas redraw is cheaper than mutating 24 DOM nodes on a
+   fridge SoC. Respects prefers-reduced-motion by drawing the final frame. */
+function clockDial(hours, hmax) {
+  var box = el("div"); box.style.cssText = "position:relative";
+  var cv = document.createElement("canvas");
+  cv.style.cssText = "width:100%;height:290px;display:block";
+  box.appendChild(cv);
+  var reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function frame(t) {   // t = 0..1 reveal progress
+    var dpr = window.devicePixelRatio || 1;
+    var w = box.clientWidth || 320, h = 290;
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    var g = cv.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    var cx = w / 2, cy = h / 2, rMin = 34, rMax = Math.min(cx, cy) - 26;
+
+    // hour ticks + labels
+    g.font = "10px ui-monospace, monospace";
+    g.textAlign = "center"; g.textBaseline = "middle";
+    for (var i = 0; i < 24; i++) {
+      var a = (i / 24) * Math.PI * 2 - Math.PI / 2;   // midnight at top
+      if (i % 6 === 0) {
+        g.fillStyle = "#78705f";
+        g.fillText(String(i), cx + Math.cos(a) * (rMax + 14), cy + Math.sin(a) * (rMax + 14));
+      }
+      g.strokeStyle = "rgba(255,255,255,.07)";
+      g.beginPath();
+      g.moveTo(cx + Math.cos(a) * rMin, cy + Math.sin(a) * rMin);
+      g.lineTo(cx + Math.cos(a) * rMax, cy + Math.sin(a) * rMax);
+      g.stroke();
+    }
+    // inner ring
+    g.strokeStyle = "rgba(255,255,255,.10)";
+    g.beginPath(); g.arc(cx, cy, rMin, 0, Math.PI * 2); g.stroke();
+
+    // wedges
+    var step = (Math.PI * 2) / 24, gap = step * 0.12;
+    hours.forEach(function (n, i) {
+      if (!n) return;
+      var frac = (n / hmax) * t;
+      var r = rMin + frac * (rMax - rMin);
+      var a0 = (i / 24) * Math.PI * 2 - Math.PI / 2 + gap / 2;
+      var a1 = a0 + step - gap;
+      var dawn = i >= 4 && i <= 9;
+      g.beginPath();
+      g.arc(cx, cy, rMin, a0, a1);
+      g.arc(cx, cy, r, a1, a0, true);
+      g.closePath();
+      g.fillStyle = dawn ? "rgba(203,162,78,.85)" : "rgba(119,192,138,.7)";
+      g.fill();
+    });
+
+    // centre readout
+    g.fillStyle = "#f2ece0";
+    g.font = "600 26px ui-monospace, monospace";
+    g.fillText(String(hours.reduce(function (a, b) { return a + b; }, 0)), cx, cy - 5);
+    g.fillStyle = "#a89f8f"; g.font = "10px ui-monospace, monospace";
+    g.fillText("calls", cx, cy + 12);
+  }
+
+  if (reduce) { setTimeout(function () { frame(1); }, 0); }
+  else {
+    var t0 = null;
+    var step = function (ts) {
+      if (t0 === null) t0 = ts;
+      var p = Math.min(1, (ts - t0) / 900);
+      frame(1 - Math.pow(1 - p, 3));            // ease-out
+      if (p < 1) requestAnimationFrame(step);
+    };
+    setTimeout(function () { requestAnimationFrame(step); }, 0);
+  }
+  if (window.ResizeObserver) new ResizeObserver(function () { frame(1); }).observe(box);
+  return box;
 }
 
 /* ---------- AIR: the EPA index as the headline ----------
