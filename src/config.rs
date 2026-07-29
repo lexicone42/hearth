@@ -34,6 +34,9 @@ pub struct Config {
     /// omit them all to disable Dyson (no MQTT tasks spawned).
     #[serde(default)]
     pub dyson: Vec<DysonConfig>,
+    /// BirdWeather source (a PUC listening station). Omit to disable.
+    #[serde(default)]
+    pub birdweather: Option<BirdWeatherConfig>,
     /// Long-term history of every observation, from every source, on disk.
     /// Omit the whole `[history]` section to disable it (nothing is recorded).
     #[serde(default)]
@@ -44,6 +47,21 @@ pub struct Config {
     /// Omit the whole `[api]` section to disable it.
     #[serde(default)]
     pub api: Option<ApiConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BirdWeatherConfig {
+    /// Station token, or the bare station number. Reads work with either; a
+    /// private station needs the real token. Held in memory only.
+    pub token: String,
+    /// Label for the entity node, e.g. `birdweather.<station>.species_today`.
+    /// Defaults to `station`.
+    #[serde(default = "default_bw_station")]
+    pub station: String,
+}
+
+fn default_bw_station() -> String {
+    "station".to_string()
 }
 
 #[derive(Debug, Clone, Deserialize)]
