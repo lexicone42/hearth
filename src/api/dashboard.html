@@ -106,6 +106,46 @@
 
   .empty { color: var(--muted); padding: 20px; text-align: center; }
 
+  /* cat cards as the board's headline */
+  .cat-hero { gap: 9px; }
+  .cat-hero .cat-head { justify-content: flex-start; }
+  .cat-hero .cat-name { font-size: 18px; }
+  .cat-hero .cat-weight { align-items: baseline; gap: 7px; flex-wrap: wrap; }
+  .cat-hero .cat-weight .n { font-size: 32px; }
+  .cat-hero .trend { font-size: 12px; }
+  .sdot { width: 9px; height: 9px; border-radius: 50%; margin-left: auto; flex: none; background: var(--good); }
+  .sdot.warn { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+  .sdot.crit { background: var(--crit); box-shadow: 0 0 9px var(--crit); }
+  .cat-bits { display: flex; flex-direction: column; gap: 3px; }
+  .bit { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; }
+  .bit .k { width: 62px; color: var(--faint); flex: none; }
+  .bit .v { color: var(--ink); font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .bit .norm { color: var(--faint); }
+  .bit.off .v { color: var(--warn); }
+  /* calendar heatmap */
+  .mpick { display: flex; gap: 5px; margin-left: auto; }
+  .mbtn { appearance: none; border: 1px solid var(--hair); background: var(--bg-2); color: var(--muted);
+    font: inherit; font-size: 11.5px; font-weight: 600; padding: 4px 9px; border-radius: 999px; cursor: pointer; }
+  .mbtn.on { background: var(--brass); border-color: var(--brass); color: #241b12; }
+  .mbtn:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+  .cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+  .cal-dow { text-align: center; font-size: 10.5px; color: var(--faint); letter-spacing: .08em; padding-bottom: 2px; }
+  .cal-c { aspect-ratio: 1 / 1; border-radius: 7px; background: var(--bg-3);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums;
+    color: var(--ink); border: 1.5px solid transparent; }
+  .cal-c.none { background: transparent; border: 1.5px dashed var(--hair); color: transparent; }
+  .cal-c.q { border-color: var(--warn); }          /* notably quiet */
+  .cal-c.b { border-color: var(--good); }          /* notably busy */
+  .cal-c.zero { color: var(--warn); font-weight: 700; }
+  .cal-c.today { box-shadow: 0 0 0 2px var(--brass) inset; }
+  .cal-key { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 11px; font-size: 11px; color: var(--faint); }
+  .cal-key .ramp { width: 66px; height: 8px; border-radius: 4px; }
+  .cal-key .k2 { margin-left: auto; }
+  .m .sub { font-size: 11px; color: var(--faint); }
+  .m.off { border: 1px solid rgba(231,169,62,.4); }
+  .m.off .v { color: var(--warn); }
+
   /* scrubbable charts + the shared day readout */
   .chart { position: relative; touch-action: pan-y; cursor: crosshair; }
   .readout {
@@ -187,11 +227,18 @@ var FALLBACK = { entities: [
   ent("dyson.living.nitrogen_dioxide","NitrogenDioxide",4,""), ent("dyson.living.fan_speed","FanSpeed",3,""), ent("dyson.living.filter_life","FilterLife",89,"%"),
   ent("dyson.living.temperature","Temperature",70.2,"°F"), ent("dyson.living.humidity","Humidity",48,"%")
 ] };
+/* Offline-preview history. `hoursAgo` keeps `last seen` sensible whenever the
+   preview is opened, instead of drifting into "412d ago". */
+function hoursAgo(h) { return new Date(Date.now() - h * 3600000).toISOString(); }
 var FALLBACK_HIST = {
-  ava: { series: [7.48,7.38,7.46,7.55,7.52,7.30,7.43,7.45,7.39,7.54], visits: 35 },
-  helly: { series: [9.49,9.47,9.52,9.49,9.50,9.47,9.44,9.46,9.52,9.49], visits: 82 },
-  teddy: { series: [9.80,9.86,9.78,9.83,9.80,9.74,9.74,9.73,9.64,9.61], visits: 26 },
-  jame: { series: [11.75,11.67,11.76,11.82,11.79,11.80,11.67,11.68,11.66,11.69], visits: 43 }
+  ava: { series: [7.48,7.38,7.46,7.55,7.52,7.30,7.43,7.45,7.39,7.54], visits: 35,
+    recent_avg: 7.48, last_seen: hoursAgo(1.5), h24: {visits:5,pee:2,poop:3}, per_day: {visits:4.2,pee:3.3,poop:0.8} },
+  helly: { series: [9.49,9.47,9.52,9.49,9.50,9.47,9.44,9.46,9.52,9.49], visits: 82,
+    recent_avg: 9.31, last_seen: hoursAgo(13), h24: {visits:2,pee:1,poop:1}, per_day: {visits:5.8,pee:4.7,poop:1.1} },
+  teddy: { series: [9.80,9.86,9.78,9.83,9.80,9.74,9.74,9.73,9.64,9.61], visits: 26,
+    recent_avg: 9.59, last_seen: hoursAgo(3), h24: {visits:5,pee:5,poop:0}, per_day: {visits:4.5,pee:4.0,poop:0.5} },
+  jame: { series: [11.75,11.67,11.76,11.82,11.79,11.80,11.67,11.68,11.66,11.69], visits: 43,
+    recent_avg: 11.42, last_seen: hoursAgo(0.5), h24: {visits:3,pee:3,poop:0}, per_day: {visits:4.2,pee:3.8,poop:0.4} }
 };
 function ent(id, cls, val, unit) { return { entity: id, class: cls, value: val, unit: unit, display: val + (unit ? " " + unit : "") }; }
 function box(slug, litter, drawer, status, needs) { return [
@@ -227,9 +274,17 @@ function model(snap, hist) {
         status: n.status ? String(n.status.value) : "Ready",
         needs: n.needs_service ? n.needs_service.value === true : false });
     } else if (n.weight) {
-      cats.push({ slug: node, name: pretty(node), weight: num(n.weight.value),
-        visits: (hist && hist[node] && hist[node].visits) || 0,
-        series: (hist && hist[node] && hist[node].series) || null });
+      var h = (hist && hist[node]) || {};
+      cats.push({ slug: node, name: pretty(node),
+        // The headline weight is the mean of the last THREE readings, not the
+        // newest one: a single mis-weigh (two cats in the box, or one leaving
+        // mid-weigh) shouldn't become the number on the fridge.
+        weight: (typeof h.recent_avg === "number" ? h.recent_avg : num(n.weight.value)),
+        visits: h.visits || 0,
+        series: h.series || null,
+        lastSeen: h.last_seen || null,
+        h24: h.h24 || null,
+        perDay: h.per_day || null });
     }
   });
   boxes.sort(function (a, b) { return a.name < b.name ? -1 : 1; });
@@ -286,25 +341,16 @@ function paint(m) {
 /* ---------- OVERVIEW ---------- */
 function renderOverview(m, root) {
   var attention = 0;
-  var sec = el("div", "grp");
-  sec.appendChild(el("div", "eyebrow", 'Litter Boxes <span id="bc" class="count"></span>'));
-  var wrap = el("div", "boxes");
-  m.boxes.forEach(function (b) {
-    var sv = sevBox(b); if (sv !== "good") attention++;
-    var card = el("div", "card box " + (sv === "good" ? "" : sv));
-    var label = sv === "crit" ? (b.needs ? "Needs changing" : (b.litter <= TH.litterLow ? "Add litter" : "Empty drawer")) : (sv === "warn" ? "Getting there" : (b.status || "Ready"));
-    card.appendChild(el("div", "box-head", '<div class="box-name">' + esc(b.name) + '</div><div class="pill ' + sv + '">' + esc(label) + '</div>'));
-    card.appendChild(meter("Litter", b.litter, b.litter <= TH.litterLow ? "var(--crit)" : (b.litter <= TH.litterWarn ? "var(--warn)" : "var(--good)")));
-    card.appendChild(meter("Drawer", b.drawer, b.drawer >= TH.drawerFull ? "var(--crit)" : (b.drawer >= TH.drawerWarn ? "var(--warn)" : "#8a7f6b")));
-    wrap.appendChild(card);
-  });
-  sec.appendChild(wrap); root.appendChild(sec);
+  m.boxes.forEach(function (b) { if (sevBox(b) !== "good") attention++; });
 
+  /* ---- Cats first: they're the point of this board, the boxes are the chore ---- */
   if (m.cats.length) {
+    var needs = m.cats.filter(function (c) { return catFlags(c).level !== "good"; }).length;
     var cs = el("div", "grp");
-    cs.appendChild(el("div", "eyebrow", 'Cats <span class="count">tap “Cats” for trends</span>'));
+    cs.appendChild(el("div", "eyebrow",
+      'Cats <span class="count">' + (needs ? needs + " worth a look" : "all settled") + '</span>'));
     var cg = el("div", "cats");
-    m.cats.forEach(function (c) { cg.appendChild(catCard(c, 42, false)); });
+    m.cats.forEach(function (c) { cg.appendChild(catCard(c, 52, false)); });
     cs.appendChild(cg); root.appendChild(cs);
   }
 
@@ -321,7 +367,22 @@ function renderOverview(m, root) {
     hs.appendChild(hl); root.appendChild(hs);
   }
 
-  document.getElementById("bc").textContent = attention === 0 ? "all ready" : attention + " need attention";
+  /* ---- Litter boxes last: a chore list, not the headline ---- */
+  var sec = el("div", "grp");
+  sec.appendChild(el("div", "eyebrow",
+    'Litter Boxes <span class="count">' + (attention === 0 ? "all ready" : attention + " need attention") + '</span>'));
+  var wrap = el("div", "boxes");
+  m.boxes.forEach(function (b) {
+    var sv = sevBox(b);
+    var card = el("div", "card box " + (sv === "good" ? "" : sv));
+    var label = sv === "crit" ? (b.needs ? "Needs changing" : (b.litter <= TH.litterLow ? "Add litter" : "Empty drawer")) : (sv === "warn" ? "Getting there" : (b.status || "Ready"));
+    card.appendChild(el("div", "box-head", '<div class="box-name">' + esc(b.name) + '</div><div class="pill ' + sv + '">' + esc(label) + '</div>'));
+    card.appendChild(meter("Litter", b.litter, b.litter <= TH.litterLow ? "var(--crit)" : (b.litter <= TH.litterWarn ? "var(--warn)" : "var(--good)")));
+    card.appendChild(meter("Drawer", b.drawer, b.drawer >= TH.drawerFull ? "var(--crit)" : (b.drawer >= TH.drawerWarn ? "var(--warn)" : "#8a7f6b")));
+    wrap.appendChild(card);
+  });
+  sec.appendChild(wrap); root.appendChild(sec);
+
   setVerdict(attention);
 }
 
@@ -398,17 +459,81 @@ function metric(lbl, e, cls) {
   return card;
 }
 function fmtNum(v) { var n = Number(v); return isNaN(n) ? String(v) : (Math.abs(n) >= 100 ? Math.round(n) : n.toFixed(1)); }
+/* How long ago, in words. `null` when we've never seen the cat. */
+function ago(iso) {
+  if (!iso) return null;
+  var t = Date.parse(iso);
+  if (isNaN(t)) return null;
+  var mins = Math.max(0, Math.round((Date.now() - t) / 60000));
+  if (mins < 60) return mins <= 1 ? "just now" : mins + "m ago";
+  var hrs = Math.round(mins / 60);
+  if (hrs < 48) return hrs + "h ago";
+  return Math.round(hrs / 24) + "d ago";
+}
+
+/* Is anything about this cat worth a second look?
+   Three things actually matter, in order: have we seen them at all recently,
+   are they using the box as often as usual, and have they stopped pooping.
+   Everything else is noise on a fridge. Returns {level, why}. */
+function catFlags(c) {
+  var out = { level: "good", why: [] };
+  var mins = c.lastSeen ? (Date.now() - Date.parse(c.lastSeen)) / 60000 : null;
+  function bump(lvl) {
+    if (lvl === "crit" || out.level === "good") out.level = lvl;
+    if (lvl === "crit") out.level = "crit";
+  }
+  if (mins != null && !isNaN(mins)) {
+    if (mins > 24 * 60) { bump("crit"); out.why.push("not seen in over a day"); }
+    else if (mins > 12 * 60) { bump("warn"); out.why.push("not seen in " + Math.round(mins / 60) + "h"); }
+  }
+  if (c.h24 && c.perDay && c.perDay.visits >= 2 && c.h24.visits < c.perDay.visits * 0.5) {
+    bump("warn"); out.why.push("using the box about half as often as usual");
+  }
+  if (c.h24 && c.perDay && c.perDay.poop >= 1 && c.h24.poop === 0) {
+    bump("warn"); out.why.push("no poop in 24h (usually " + c.perDay.poop.toFixed(1) + "/day)");
+  }
+  return out;
+}
+
 function catCard(c, sparkH, detail) {
   var color = CAT_COLOR[c.slug] || "var(--brass)";
   var s = c.series && c.series.length > 1 ? c.series : [c.weight, c.weight];
   var delta = s[s.length - 1] - s[0];
   var dir = Math.abs(delta) < 0.12 ? "flat" : (delta < 0 ? "down" : "up");
-  var arrow = dir === "flat" ? "steady" : ((dir === "down" ? "▼ " : "▲ ") + Math.abs(delta).toFixed(1) + " lb");
-  var card = el("div", "card cat");
-  card.appendChild(catHead(c.slug, c.name, color, 30));
-  card.appendChild(el("div", "cat-weight", '<span class="n">' + Number(c.weight).toFixed(1) + '</span><span class="u">lb</span>'));
+  var arrow = dir === "flat" ? "steady" : ((dir === "down" ? "▼ " : "▲ ") + Math.abs(delta).toFixed(2) + " lb");
+  var flags = catFlags(c);
+
+  var card = el("div", "card cat cat-hero");
+  var head = catHead(c.slug, c.name, color, 40);
+  var dot = el("span", "sdot " + flags.level);
+  dot.title = flags.why.length ? flags.why.join("; ") : "nothing unusual";
+  head.appendChild(dot);
+  card.appendChild(head);
+
+  card.appendChild(el("div", "cat-weight",
+    '<span class="n">' + Number(c.weight).toFixed(2) + '</span><span class="u">lb</span>' +
+    '<span class="trend ' + dir + '">' + arrow + '</span>'));
   card.appendChild(sparkline(s, color, sparkH));
-  card.appendChild(el("div", "cat-foot", '<span class="trend ' + dir + '">' + arrow + '</span><span class="visits">' + (c.visits || 0) + ' ›</span>'));
+
+  /* The two lines that actually catch a problem. */
+  var seen = ago(c.lastSeen);
+  var bits = el("div", "cat-bits");
+  if (seen) {
+    var late = flags.why.length && /not seen/.test(flags.why[0]);
+    bits.appendChild(el("div", "bit" + (late ? " off" : ""),
+      '<span class="k">last seen</span><span class="v">' + esc(seen) + '</span>'));
+  }
+  if (c.h24 && c.perDay) {
+    var norm = c.perDay.visits >= 0.5 ? ' <span class="norm">of ~' + Math.round(c.perDay.visits) + '</span>' : '';
+    bits.appendChild(el("div", "bit",
+      '<span class="k">today</span><span class="v">' + Math.round(c.h24.visits) + ' visits' + norm + '</span>'));
+    bits.appendChild(el("div", "bit",
+      '<span class="k"></span><span class="v">' +
+      '<b style="color:var(--pee)">' + Math.round(c.h24.pee) + '</b> pee · ' +
+      '<b style="color:var(--poop)">' + Math.round(c.h24.poop) + '</b> poop</span>'));
+  }
+  card.appendChild(bits);
+  card.appendChild(el("div", "cat-foot", '<span class="visits">' + (c.visits || 0) + ' visits / 10d</span><span class="visits">details ›</span>'));
   linkToCat(card, c.slug);
   return card;
 }
@@ -547,6 +672,9 @@ function drawCatCharts(cat, color, visits, root) {
   var totPee = 0, totPoop = 0, allW = [], allOut = [];
   days.forEach(function (d) { totPee += d.pee; totPoop += d.poop; allW = allW.concat(d.w); allOut = allOut.concat(d.out); });
   var wLo = allW.length ? Math.min.apply(null, allW) : 0, wHi = allW.length ? Math.max.apply(null, allW) : 0;
+  /* ---- Last 24 hours, against this cat's own normal ---- */
+  root.appendChild(last24(days, visits, partial, cat));
+
   var sum = el("div", "minmax");
   sum.innerHTML =
     '<span>range <b>' + wLo.toFixed(1) + '–' + wHi.toFixed(1) + ' lb</b></span>' +
@@ -588,6 +716,9 @@ function drawCatCharts(cat, color, visits, root) {
     addChart("Time in box", { value: function (d) { return d.durMed; }, zero: true, mean: durAvg, color: "var(--brass)", height: 72 },
       'normally <b>' + fmtDur(durAvg) + '</b> per visit <span style="color:var(--faint)">— a rising trend is worth a look</span>');
   }
+
+  /* ---- day-by-day calendar + week over week ---- */
+  root.appendChild(calendarSection(days, color, partial, show));
 
   /* ---- box preference, split by pee vs poop ---- */
   var bx = {};
@@ -720,6 +851,204 @@ function scrub(node, n, onIndex) {
   });
   node.addEventListener("pointerup", function () { down = false; });
   node.addEventListener("pointercancel", function () { down = false; });
+}
+
+/* ---------- day-by-day calendar heatmap ----------
+   Two visual channels, so a month reads at a glance:
+     BRIGHTNESS = how much happened that day (volume),
+     OUTLINE    = how far that is from this cat's own normal (the variance) —
+                  amber for notably quiet, the cat's colour for notably busy.
+   Normal is the mean/σ over COMPLETE days, so a day in progress can't quietly
+   redefine it. Days before the archive starts are dashed and empty, which keeps
+   "no data" visually distinct from "a genuinely quiet day" — the distinction
+   that matters most when you're scanning for a problem. */
+var CAL_METRICS = [
+  { id: "visits", label: "Visits", get: function (d) { return d.n; }, fmt: function (v) { return String(Math.round(v)); } },
+  { id: "pee",    label: "Pee",    get: function (d) { return d.pee; }, fmt: function (v) { return String(Math.round(v)); } },
+  { id: "poop",   label: "Poop",   get: function (d) { return d.poop; }, fmt: function (v) { return String(Math.round(v)); } },
+  { id: "weight", label: "Weight", get: function (d) { return d.med; }, fmt: function (v) { return v == null ? "—" : v.toFixed(2); } }
+];
+var calMetric = "visits";
+
+function calendarSection(days, color, partial, showDay) {
+  var g = el("div", "grp");
+  var head = el("div", "grp-title", "Day by day");
+  var picker = el("div", "mpick");
+  CAL_METRICS.forEach(function (mt) {
+    var b = el("button", "mbtn" + (mt.id === calMetric ? " on" : ""), esc(mt.label));
+    b.type = "button";
+    b.addEventListener("click", function (e) {
+      e.stopPropagation();
+      calMetric = mt.id;
+      var fresh = calendarSection(days, color, partial, showDay);
+      g.parentNode.replaceChild(fresh, g);
+    });
+    picker.appendChild(b);
+  });
+  head.appendChild(picker);
+  g.appendChild(head);
+
+  var mt = CAL_METRICS.filter(function (x) { return x.id === calMetric; })[0] || CAL_METRICS[0];
+  var byIso = {}; days.forEach(function (d, i) { byIso[d.iso] = { d: d, i: i }; });
+
+  // Baseline over complete days only.
+  var base = (partial && days.length > 1 ? days.slice(0, days.length - 1) : days)
+    .map(mt.get).filter(function (v) { return v != null; });
+  var mu = avg(base);
+  var sd = base.length > 1
+    ? Math.sqrt(base.reduce(function (a, v) { return a + (v - mu) * (v - mu); }, 0) / base.length) : 0;
+  var vals = days.map(mt.get).filter(function (v) { return v != null; });
+  var lo = vals.length ? Math.min.apply(null, vals) : 0;
+  var hi = vals.length ? Math.max.apply(null, vals) : 1;
+
+  // Whole weeks (Mon-start) spanning the archived range.
+  var first = parseDay(days[0].iso), last = parseDay(days[days.length - 1].iso);
+  var start = new Date(first); start.setDate(start.getDate() - ((first.getDay() + 6) % 7));
+  var end = new Date(last); end.setDate(end.getDate() + (6 - ((last.getDay() + 6) % 7)));
+
+  var card = el("div", "card");
+  var grid = el("div", "cal");
+  ["M","T","W","T","F","S","S"].forEach(function (d) { grid.appendChild(el("div", "cal-dow", d)); });
+
+  var weeks = [], cur = new Date(start), guard = 0;
+  while (cur <= end && guard++ < 400) {
+    var iso = isoDay(cur), hit = byIso[iso], cell = el("div", "cal-c");
+    if (!hit) {
+      cell.className = "cal-c none";
+      cell.title = fmtDay(iso) + " — no data";
+    } else {
+      var v = mt.get(hit.d);
+      if (v == null) {
+        cell.className = "cal-c none";
+        cell.title = fmtDay(iso) + " — no reading";
+      } else {
+        var z = sd > 0 ? (v - mu) / sd : 0;
+        var frac = hi > lo ? (v - lo) / (hi - lo) : 0.5;
+        cell.style.background = "color-mix(in srgb, " + color + " " + Math.round(12 + frac * 78) + "%, transparent)";
+        if (z <= -1) { cell.classList.add("q"); }        // notably quiet
+        else if (z >= 1.5) { cell.classList.add("b"); }  // notably busy
+        if (mt.id !== "weight" && v === 0) cell.classList.add("zero");
+        cell.textContent = mt.fmt(v);
+        cell.title = fmtDay(iso) + " — " + mt.label.toLowerCase() + " " + mt.fmt(v) +
+          (sd > 0 ? " (" + (z >= 0 ? "+" : "") + z.toFixed(1) + "σ vs normal)" : "");
+        // Tapping a day drives the same cursor the charts use.
+        (function (idx) {
+          cell.style.cursor = "pointer";
+          cell.addEventListener("click", function (e) { e.stopPropagation(); showDay(idx); });
+        })(hit.i);
+      }
+      if (partial && hit.i === days.length - 1) cell.classList.add("today");
+    }
+    grid.appendChild(cell);
+    weeks.push({ iso: iso, hit: hit });
+    cur = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate() + 1);
+  }
+  card.appendChild(grid);
+  card.appendChild(el("div", "cal-key",
+    '<span class="k1">quieter than usual</span>' +
+    '<span class="ramp" style="background:linear-gradient(90deg, color-mix(in srgb,' + color + ' 12%,transparent), ' + color + ')"></span>' +
+    '<span class="k1">busier</span>' +
+    '<span class="k2">outline = ±1σ from normal · dashed = no data</span>'));
+  g.appendChild(card);
+
+  // ---- week over week ----
+  var wk = [];
+  for (var i = 0; i < weeks.length; i += 7) {
+    var slice = weeks.slice(i, i + 7).filter(function (x) { return x.hit && mt.get(x.hit.d) != null; });
+    if (!slice.length) continue;
+    wk.push({ label: fmtDay(weeks[i].iso), mean: avg(slice.map(function (x) { return mt.get(x.hit.d); })), n: slice.length });
+  }
+  if (wk.length > 1) {
+    var g2 = el("div", "grp");
+    g2.appendChild(el("div", "grp-title", "Week over week"));
+    var c2 = el("div", "card"), rows = el("div", "grp"); rows.style.gap = "8px";
+    var wmax = Math.max.apply(null, wk.map(function (w) { return w.mean; })) || 1;
+    wk.forEach(function (w, i) {
+      var prev = i ? wk[i - 1].mean : null;
+      var pct = prev ? ((w.mean - prev) / prev) * 100 : null;
+      var dirc = pct == null ? "flat" : (Math.abs(pct) < 8 ? "flat" : (pct < 0 ? "down" : "up"));
+      var row = el("div", "brow");
+      var lbl = el("div", "bl"); lbl.textContent = "wk of " + w.label;
+      var track = el("div", "bt");
+      var fill = el("div");
+      fill.style.cssText = "height:100%;width:" + Math.max(3, (w.mean / wmax) * 100) + "%;background:" + color + ";opacity:.85;";
+      track.appendChild(fill);
+      var val = el("div", "bn");
+      val.innerHTML = '<span>' + w.mean.toFixed(1) + '</span>' +
+        (pct == null ? '' : ' <span class="trend ' + dirc + '">' + (dirc === "flat" ? "~" : (pct < 0 ? "▼" : "▲")) + Math.abs(pct).toFixed(0) + '%</span>');
+      val.style.width = "104px";
+      row.appendChild(lbl); row.appendChild(track); row.appendChild(val);
+      rows.appendChild(row);
+    });
+    c2.appendChild(rows);
+    c2.appendChild(el("div", "minmax", '<span>per-day average of ' + esc(mt.label.toLowerCase()) + ', by week</span>'));
+    g2.appendChild(c2);
+    g.appendChild(g2);
+  }
+  return g;
+}
+
+/* The "is anything off right now?" panel: the last 24 hours of real visits,
+   each figure shown against this cat's own normal day. The baseline excludes
+   today, so a morning with few visits doesn't quietly redefine "normal". */
+function last24(days, visits, partial, cat) {
+  var since = Date.now() - 86400000;
+  var recent = visits.filter(function (v) {
+    var t = Date.parse(v.ts); return !isNaN(t) && t >= since;
+  });
+  var pee = recent.filter(function (v) { return v.waste === "Urine"; }).length;
+  var poop = recent.filter(function (v) { return v.waste === "Feces"; }).length;
+  var durs = recent.map(function (v) { return v.duration; }).filter(function (d) { return typeof d === "number" && d > 0; });
+  var ws = recent.map(function (v) { return v.weight; }).filter(function (w) { return typeof w === "number"; });
+
+  // Normal = mean per complete day (today excluded).
+  var base = partial && days.length > 1 ? days.slice(0, days.length - 1) : days;
+  var nVisits = avg(base.map(function (d) { return d.n; }));
+  var nPee = avg(base.map(function (d) { return d.pee; }));
+  var nPoop = avg(base.map(function (d) { return d.poop; }));
+  var nDur = avg(base.map(function (d) { return d.durMed; }).filter(function (x) { return x != null; }));
+
+  var last = recent.length ? recent[recent.length - 1] : (visits.length ? visits[visits.length - 1] : null);
+  var seen = last ? ago(last.ts) : null;
+
+  var g = el("div", "grp");
+  g.appendChild(el("div", "grp-title", "Last 24 hours" +
+    (seen ? '<span class="tag">last seen ' + esc(seen) + '</span>' : '')));
+  var card = el("div", "card");
+  var grid = el("div", "metrics");
+
+  function stat(label, value, normal, off) {
+    var m = el("div", "m" + (off ? " off" : ""));
+    m.appendChild(el("div", "lbl", label));
+    m.appendChild(el("div", "v", value));
+    m.appendChild(el("div", "sub", normal));
+    return m;
+  }
+  grid.appendChild(stat("Visits", String(recent.length),
+    nVisits ? "usually ~" + nVisits.toFixed(1) : "",
+    nVisits >= 2 && recent.length < nVisits * 0.5));
+  grid.appendChild(stat("Pee", '<span style="color:var(--pee)">' + pee + '</span>',
+    nPee ? "usually ~" + nPee.toFixed(1) : "", false));
+  grid.appendChild(stat("Poop", '<span style="color:var(--poop)">' + poop + '</span>',
+    nPoop ? "usually ~" + nPoop.toFixed(1) : "",
+    nPoop >= 1 && poop === 0));
+  grid.appendChild(stat("Weight", ws.length ? med(ws).toFixed(2) + '<small>lb</small>' : "—",
+    ws.length ? ws.length + " reading" + (ws.length === 1 ? "" : "s") : "no readings", false));
+  grid.appendChild(stat("In box", durs.length ? esc(fmtDur(med(durs))) : "—",
+    nDur ? "usually " + fmtDur(nDur) : "", false));
+  var boxes = {};
+  recent.forEach(function (v) { boxes[v.box_name] = (boxes[v.box_name] || 0) + 1; });
+  var top = Object.keys(boxes).sort(function (a, b) { return boxes[b] - boxes[a]; })[0];
+  grid.appendChild(stat("Box", top ? esc(titleCase(top)) : "—",
+    top ? boxes[top] + " of " + recent.length + " visits" : "", false));
+
+  card.appendChild(grid);
+  if (!recent.length) {
+    card.appendChild(el("div", "minmax",
+      '<span style="color:var(--warn)">No visits recorded in the last 24 hours.</span>'));
+  }
+  g.appendChild(card);
+  return g;
 }
 
 function chartSection(title, node, caption) {

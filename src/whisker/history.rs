@@ -205,7 +205,38 @@ pub(crate) fn restrict_to_owner(path: &Path) -> Result<()> {
 pub struct CatWeightSeries {
     pub series: Vec<f64>,
     pub visits: usize,
+    /// Mean of the cat's **last three** measured weights.
+    ///
+    /// This, not the single newest reading, is what the dashboard shows as "the
+    /// cat's weight". A Litter-Robot occasionally mis-weighs — two cats in the
+    /// box at once, or one leaving mid-weigh — and a single bad reading would
+    /// otherwise become the headline number until the next visit. Averaging
+    /// three costs a little responsiveness and buys a figure that doesn't lie.
+    /// `None` when no plausible reading exists.
+    pub recent_avg: Option<f64>,
+    /// ISO timestamp of the cat's most recent visit. The single most useful
+    /// health signal on a card: a cat that hasn't used a box in a day is worth
+    /// noticing long before its weight moves.
+    pub last_seen: Option<String>,
+    /// Visits, pees and poops in the last 24 hours.
+    pub h24: Tally,
+    /// The cat's normal day, averaged over complete days (today excluded — a
+    /// day in progress would drag every average down and make every morning
+    /// look like a problem). This is what `h24` is meant to be read against.
+    pub per_day: Tally,
 }
+
+/// A count of visits split by what the cat left behind.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct Tally {
+    pub visits: f64,
+    pub pee: f64,
+    pub poop: f64,
+}
+
+/// One day's visits for a cat: `(weight, waste type)` each. Named because the
+/// nested form is unreadable inline and clippy rightly objects to it.
+type DayReadings<'a> = Vec<(f64, Option<&'a str>)>;
 
 /// Build a per-cat daily-median weight series over the most recent `max_days`
 /// days with data, keyed by cat slug (the SAME slug the pet observations use, so
@@ -219,8 +250,8 @@ pub fn weight_series(dir: impl AsRef<Path>, max_days: usize) -> BTreeMap<String,
         return BTreeMap::new();
     };
 
-    // slug -> "YYYY-MM-DD" -> weights that day
-    let mut by_cat: BTreeMap<String, BTreeMap<String, Vec<f64>>> = BTreeMap::new();
+    // slug -> every plausible (timestamp, weight, waste), which all outputs derive from
+    let mut by_cat: BTreeMap<String, Vec<(String, f64, Option<String>)>> = BTreeMap::new();
     for line in text.lines() {
         let Ok(rec) = serde_json::from_str::<VisitRecord>(line) else {
             continue;
@@ -231,24 +262,102 @@ pub fn weight_series(dir: impl AsRef<Path>, max_days: usize) -> BTreeMap<String,
         if !(3.0..=30.0).contains(&rec.weight_lb) || rec.ts.len() < 10 {
             continue;
         }
-        let slug = crate::whisker::canonical::slugify(cat);
         by_cat
-            .entry(slug)
+            .entry(crate::whisker::canonical::slugify(cat))
             .or_default()
-            .entry(rec.ts[..10].to_string())
-            .or_default()
-            .push(rec.weight_lb);
+            .push((rec.ts, rec.weight_lb, rec.waste_type));
     }
 
+    // ISO-8601 UTC sorts lexicographically, so a 24h window is a string compare.
+    let now = crate::clock::now_ms();
+    let cutoff_24h = crate::clock::iso_utc(now - 86_400_000);
+    let today = crate::clock::iso_utc(now);
+    let today = &today[..10];
+
     let mut out = BTreeMap::new();
-    for (slug, days) in by_cat {
-        // Keys sort ascending; take the most recent `max_days`, back to order.
-        let mut recent: Vec<(&String, &Vec<f64>)> = days.iter().rev().take(max_days).collect();
+    for (slug, mut readings) in by_cat {
+        // The archive is append-ordered, but an import can interleave boxes, so
+        // sort rather than assume — "last three" has to mean last in time.
+        readings.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let recent_avg = match readings.len() {
+            0 => None,
+            n => {
+                let tail = &readings[n.saturating_sub(3)..];
+                Some(tail.iter().map(|(_, w, _)| w).sum::<f64>() / tail.len() as f64)
+            }
+        };
+        let last_seen = readings.last().map(|(ts, _, _)| ts.clone());
+
+        let mut h24 = Tally::default();
+        for (ts, _, waste) in readings
+            .iter()
+            .filter(|(ts, _, _)| ts.as_str() >= cutoff_24h.as_str())
+        {
+            let _ = ts;
+            h24.visits += 1.0;
+            match waste.as_deref() {
+                Some("Urine") => h24.pee += 1.0,
+                Some("Feces") => h24.poop += 1.0,
+                _ => {}
+            }
+        }
+
+        // Group by day for both the median series and the per-day baseline.
+        let mut by_day: BTreeMap<&str, DayReadings> = BTreeMap::new();
+        for (ts, w, waste) in &readings {
+            by_day
+                .entry(&ts[..10])
+                .or_default()
+                .push((*w, waste.as_deref()));
+        }
+
+        // The baseline excludes today: a day in progress would drag every
+        // average down and make every morning look like a problem.
+        let complete: Vec<&DayReadings> = by_day
+            .iter()
+            .filter(|(d, _)| **d != today)
+            .map(|(_, v)| v)
+            .collect();
+        let per_day = if complete.is_empty() {
+            Tally::default()
+        } else {
+            let n = complete.len() as f64;
+            Tally {
+                visits: complete.iter().map(|v| v.len() as f64).sum::<f64>() / n,
+                pee: complete
+                    .iter()
+                    .map(|v| v.iter().filter(|(_, w)| *w == Some("Urine")).count() as f64)
+                    .sum::<f64>()
+                    / n,
+                poop: complete
+                    .iter()
+                    .map(|v| v.iter().filter(|(_, w)| *w == Some("Feces")).count() as f64)
+                    .sum::<f64>()
+                    / n,
+            }
+        };
+
+        let mut recent: Vec<(&&str, &DayReadings)> = by_day.iter().rev().take(max_days).collect();
         recent.reverse();
-        let series: Vec<f64> = recent.iter().map(|(_, ws)| median(ws)).collect();
+        let series: Vec<f64> = recent
+            .iter()
+            .map(|(_, ws)| median(&ws.iter().map(|(w, _)| *w).collect::<Vec<_>>()))
+            .collect();
         let visits: usize = recent.iter().map(|(_, ws)| ws.len()).sum();
+
         if !series.is_empty() {
-            out.insert(slug, CatWeightSeries { series, visits });
+            out.insert(
+                slug,
+                CatWeightSeries {
+                    series,
+                    visits,
+                    recent_avg,
+                    last_seen,
+                    h24,
+                    per_day,
+                },
+            );
         }
     }
     out
@@ -523,6 +632,10 @@ mod tests {
         let one = s.get("fixture_one").expect("fixture_one keyed by slug");
         assert_eq!(one.series, vec![9.4, 9.6]); // day-1 median, day-2 median
         assert_eq!(one.visits, 4); // 3 on day 1 + 1 plausible on day 2 (0.02 dropped)
+        // recent_avg = mean of the last THREE readings in time order
+        // (9.4, 9.6 from day 1 and 9.6 from day 2 — the 0.02 was dropped as noise).
+        let avg = one.recent_avg.expect("recent_avg");
+        assert!((avg - (9.4 + 9.6 + 9.6) / 3.0).abs() < 1e-9, "got {avg}");
         assert!(s.contains_key("fixture_two"));
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -543,7 +656,17 @@ mod tests {
         let s = weight_series("data/whisker", 10);
         assert!(!s.is_empty(), "expected cats in the real archive");
         for (slug, cs) in &s {
-            eprintln!("{slug}: {:?}  ({} visits/10d)", cs.series, cs.visits);
+            eprintln!(
+                "{slug}: avg3={:.2} last_seen={} | 24h {:.0}v {:.0}pee {:.0}poop | normal {:.1}v {:.1}pee {:.1}poop",
+                cs.recent_avg.unwrap_or(0.0),
+                cs.last_seen.as_deref().unwrap_or("-"),
+                cs.h24.visits,
+                cs.h24.pee,
+                cs.h24.poop,
+                cs.per_day.visits,
+                cs.per_day.pee,
+                cs.per_day.poop,
+            );
         }
     }
 

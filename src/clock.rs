@@ -22,6 +22,20 @@ pub fn today_utc() -> String {
     ymd(now_ms().div_euclid(1_000).div_euclid(86_400))
 }
 
+/// Format epoch milliseconds as `YYYY-MM-DDTHH:MM:SSZ`.
+///
+/// The archive stamps every visit with an ISO-8601 UTC timestamp, and ISO-8601
+/// UTC strings compare lexicographically in chronological order — so producing a
+/// cutoff in this exact shape lets "is this visit within the last 24 hours?" be a
+/// plain string comparison, with no date parsing anywhere.
+pub fn iso_utc(ms: i64) -> String {
+    let secs = ms.div_euclid(1_000);
+    let (y, mo, d) = civil_from_days(secs.div_euclid(86_400));
+    let tod = secs.rem_euclid(86_400);
+    let (h, mi, s) = (tod / 3600, (tod % 3600) / 60, tod % 60);
+    format!("{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{s:02}Z")
+}
+
 /// Format a Unix day number as `YYYY-MM-DD`.
 pub fn ymd(day: i64) -> String {
     let (y, m, d) = civil_from_days(day);
@@ -63,6 +77,22 @@ mod tests {
         let mut names = [ymd(19_800), ymd(19_723), ymd(19_782)];
         names.sort();
         assert_eq!(names, [ymd(19_723), ymd(19_782), ymd(19_800)]);
+    }
+
+    #[test]
+    fn iso_utc_is_sortable_and_correct() {
+        assert_eq!(iso_utc(0), "1970-01-01T00:00:00Z");
+        assert_eq!(iso_utc(1_000), "1970-01-01T00:00:01Z");
+        assert_eq!(iso_utc(86_399_000), "1970-01-01T23:59:59Z");
+        assert_eq!(iso_utc(86_400_000), "1970-01-02T00:00:00Z");
+        // The whole point: lexicographic order == chronological order, which is
+        // what lets a 24h cutoff be a string comparison.
+        let a = iso_utc(1_700_000_000_000);
+        let b = iso_utc(1_700_000_000_000 + 86_400_000);
+        assert!(a < b);
+        // ...and it must also sort correctly against the archive's own format,
+        // which carries fractional seconds.
+        assert!(a.as_str() < format!("{}.500000Z", b.trim_end_matches('Z')).as_str());
     }
 
     #[test]
