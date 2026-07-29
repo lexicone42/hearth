@@ -122,6 +122,29 @@
   .bit .v { color: var(--ink); font-family: var(--mono); font-variant-numeric: tabular-nums; }
   .bit .norm { color: var(--faint); }
   .bit.off .v { color: var(--warn); }
+  /* explore */
+  .m.tappable { cursor: pointer; }
+  .m.tappable:hover { border: 1px solid var(--hair); }
+  .ex-search { width: 100%; box-sizing: border-box; background: var(--bg-3); color: var(--ink);
+    border: 1px solid var(--hair); border-radius: 9px; padding: 9px 12px; font: inherit; font-size: 14px; }
+  .ex-search::placeholder { color: var(--faint); }
+  .ex-search:focus-visible { outline: 2px solid var(--brass); outline-offset: 1px; }
+  .ex-list { max-height: 240px; overflow-y: auto; margin-top: 10px;
+    display: flex; flex-direction: column; gap: 3px; }
+  .ex-src { font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--faint); margin: 8px 2px 2px; }
+  .ex-item { appearance: none; text-align: left; border: 1px solid transparent; background: var(--bg-3);
+    color: var(--muted); font: inherit; font-size: 13px; padding: 7px 10px; border-radius: 8px; cursor: pointer; }
+  .ex-item:hover { color: var(--ink); }
+  .ex-item.on { background: var(--brass); color: #241b12; font-weight: 650; }
+  .ex-bar { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 12px; }
+  .ex-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12.5px; }
+  .ex-table th { text-align: left; color: var(--faint); font-weight: 600; font-size: 11px;
+    letter-spacing: .1em; text-transform: uppercase; padding: 4px 10px 8px 0; }
+  .ex-table td { padding: 4px 10px 4px 0; border-top: 1px solid var(--hair);
+    font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .ex-table td:last-child { color: var(--brass); }
+
   /* calendar heatmap */
   .mpick { display: flex; gap: 5px; margin-left: auto; }
   .mbtn { appearance: none; border: 1px solid var(--hair); background: var(--bg-2); color: var(--muted);
@@ -298,7 +321,8 @@ var VIEWS = [
   { id: "cats", label: "Cats", show: function (m) { return m.cats.length > 0; }, render: renderCats },
   { id: "gallery", label: "Gallery", show: function (m) { return m.cats.length > 0; }, render: renderGallery },
   { id: "weather", label: "Weather", show: function (m) { return !!m.nodes.ambient_weather; }, render: function (m, r) { renderMetrics(m, r, "ambient_weather"); } },
-  { id: "air", label: "Air", show: function (m) { return !!m.nodes.dyson; }, render: function (m, r) { renderMetrics(m, r, "dyson"); } }
+  { id: "air", label: "Air", show: function (m) { return !!m.nodes.dyson; }, render: function (m, r) { renderMetrics(m, r, "dyson"); } },
+  { id: "explore", label: "Explore", show: function () { return true; }, render: function (m, r) { renderExplore(r, null); } }
 ];
 var current = (location.hash.replace(/^#\/?/, "") || "overview");
 var LAST = null; /* last model, for re-render on tab switch */
@@ -316,9 +340,16 @@ function renderNav(m) {
    fragment here closes the DOM-XSS vector: a hostile #/cat/<payload> fails the
    test and falls back to overview, so nothing from the URL reaches innerHTML. */
 var SLUG_RE = /^[a-z0-9_]+$/;
+/* Entity ids are dotted paths (`ambient_weather.outdoor.temperature`), so they
+   need their own validator — same intent as SLUG_RE: anything from the URL that
+   isn't this shape never reaches the DOM. */
+var ENTITY_RE = /^[a-z0-9_]+(\.[a-z0-9_]+)+$/;
 function route() {
   var h = location.hash.replace(/^#\/?/, ""), p = h.split("/");
   if (p[0] === "cat" && SLUG_RE.test(p[1] || "")) return { view: "cat", slug: p[1] };
+  if (p[0] === "explore") {
+    return { view: "explore", entity: ENTITY_RE.test(p[1] || "") ? p[1] : null };
+  }
   return { view: SLUG_RE.test(h) ? h : "overview" };
 }
 /* Escape text destined for an innerHTML template (defense in depth for values
@@ -335,6 +366,7 @@ function paint(m) {
   renderNav(m);
   var root = document.getElementById("view"); root.innerHTML = "";
   if (r.view === "cat") { renderCatDetail(r.slug, m, root); return; }
+  if (r.view === "explore") { renderExplore(root, r.entity); return; }
   (VIEWS.filter(function (x) { return x.id === current && x.show(m); })[0] || VIEWS[0]).render(m, root);
 }
 
@@ -456,6 +488,15 @@ function metric(lbl, e, cls) {
     ? '<span>' + esc(fmtNum(e.value)) + '</span><small>' + esc(e.unit) + '</small>'
     : esc(String(e.value));
   card.appendChild(el("div", "v", val));
+  // Any recorded signal can be charted — tapping a reading opens its history.
+  if (e.entity && ENTITY_RE.test(e.entity)) {
+    card.classList.add("tappable");
+    card.setAttribute("role", "link");
+    card.setAttribute("tabindex", "0");
+    var go = function () { location.hash = "#/explore/" + e.entity; };
+    card.addEventListener("click", go);
+    card.addEventListener("keydown", function (ev) { if (ev.key === "Enter") go(); });
+  }
   return card;
 }
 function fmtNum(v) { var n = Number(v); return isNaN(n) ? String(v) : (Math.abs(n) >= 100 ? Math.round(n) : n.toFixed(1)); }
@@ -1102,6 +1143,280 @@ function synthVisits(cat) {
     }
   }
   return out;
+}
+
+/* ================= EXPLORE: every recorded signal, browsable =================
+   The dashboard's other views are opinionated — they decide what matters. This
+   one doesn't: it lists whatever the history happens to contain and lets you
+   look. Charting is Canvas rather than SVG because a wide window can hold
+   thousands of points, and a fridge SoC should not be asked to lay out
+   thousands of DOM nodes. */
+var EX = { entities: null, range: 24, entity: null, series: null, raw: false, busy: false };
+var EX_RANGES = [
+  { h: 1, label: "1h" }, { h: 6, label: "6h" }, { h: 24, label: "24h" },
+  { h: 168, label: "7d" }, { h: 720, label: "30d" }, { h: 8760, label: "1y" }
+];
+
+function renderExplore(root, preselect) {
+  if (preselect) EX.entity = preselect;
+  var wrap = el("div", "grp");
+  root.appendChild(wrap);
+
+  function draw() {
+    wrap.innerHTML = "";
+    wrap.appendChild(exPicker(draw));
+    if (!EX.entity) {
+      wrap.appendChild(el("div", "empty", EX.entities === null
+        ? "Loading signals…"
+        : (EX.entities.length ? "Pick a signal above to chart it."
+                              : "No history recorded yet — enable [history] in config.toml.")));
+      return;
+    }
+    wrap.appendChild(exChartCard(draw));
+  }
+  draw();
+
+  if (EX.entities === null && !EX.busy) {
+    EX.busy = true;
+    apiGet("/api/entities")
+      .then(function (list) { EX.entities = Array.isArray(list) ? list : []; })
+      .catch(function () { EX.entities = []; })
+      .then(function () { EX.busy = false; draw(); });
+  }
+  if (EX.entity) loadSeries(draw);
+}
+
+function loadSeries(done) {
+  var e = EX.entity, h = EX.range;
+  EX.series = null;
+  apiGet("/api/series?entity=" + encodeURIComponent(e) + "&hours=" + h + "&max=800")
+    .then(function (s) { if (EX.entity === e && EX.range === h) { EX.series = s; done(); } })
+    .catch(function () { EX.series = { error: true, points: [] }; done(); });
+}
+
+/* Searchable, source-grouped list of everything with history. */
+function exPicker(redraw) {
+  var g = el("div", "grp");
+  var head = el("div", "grp-title", "Explore");
+  if (EX.entities) head.appendChild(el("span", "tag", EX.entities.length + " signals"));
+  g.appendChild(head);
+
+  var card = el("div", "card");
+  var search = document.createElement("input");
+  search.type = "search"; search.className = "ex-search";
+  search.placeholder = "filter signals…  (e.g. greenhouse, pm25, weight)";
+  search.value = EX.q || "";
+  card.appendChild(search);
+
+  var list = el("div", "ex-list");
+  card.appendChild(list);
+
+  function fill() {
+    list.innerHTML = "";
+    var q = (EX.q || "").toLowerCase();
+    var items = (EX.entities || []).filter(function (x) {
+      return !q || x.entity.toLowerCase().indexOf(q) >= 0;
+    });
+    if (!items.length) { list.appendChild(el("div", "empty", EX.entities ? "Nothing matches." : "Loading…")); return; }
+    var groups = {};
+    items.forEach(function (x) {
+      var src = x.entity.split(".")[0];
+      (groups[src] = groups[src] || []).push(x);
+    });
+    Object.keys(groups).sort().forEach(function (src) {
+      list.appendChild(el("div", "ex-src", esc(pretty(src))));
+      groups[src].forEach(function (x) {
+        var b = el("button", "ex-item" + (x.entity === EX.entity ? " on" : ""));
+        b.type = "button";
+        b.textContent = x.entity.split(".").slice(1).join(" · ");
+        b.title = x.entity;
+        b.addEventListener("click", function () {
+          EX.entity = x.entity; EX.series = null;
+          location.hash = "#/explore/" + x.entity;   // shareable + back-button
+          redraw(); loadSeries(redraw);
+        });
+        list.appendChild(b);
+      });
+    });
+  }
+  fill();
+  search.addEventListener("input", function () { EX.q = search.value; fill(); });
+  g.appendChild(card);
+  return g;
+}
+
+/* Chart + stats + optional raw rows for the selected signal. */
+function exChartCard(redraw) {
+  var g = el("div", "grp");
+  var head = el("div", "grp-title", esc(EX.entity.split(".").slice(1).join(" · ")));
+  head.appendChild(el("span", "tag", esc(EX.entity)));
+  g.appendChild(head);
+
+  var card = el("div", "card");
+  var bar = el("div", "ex-bar");
+  EX_RANGES.forEach(function (r) {
+    var b = el("button", "mbtn" + (r.h === EX.range ? " on" : ""), r.label);
+    b.type = "button";
+    b.addEventListener("click", function () { EX.range = r.h; redraw(); loadSeries(redraw); });
+    bar.appendChild(b);
+  });
+  var rawBtn = el("button", "mbtn" + (EX.raw ? " on" : ""), "raw");
+  rawBtn.type = "button"; rawBtn.style.marginLeft = "auto";
+  rawBtn.addEventListener("click", function () { EX.raw = !EX.raw; redraw(); });
+  bar.appendChild(rawBtn);
+  card.appendChild(bar);
+
+  var s = EX.series;
+  if (!s) { card.appendChild(el("div", "empty", "Loading…")); g.appendChild(card); return g; }
+  if (s.error) { card.appendChild(el("div", "empty", "Couldn't load this signal.")); g.appendChild(card); return g; }
+  var pts = (s.points || []).filter(function (p) { return typeof p[1] === "number"; });
+  if (!pts.length) {
+    card.appendChild(el("div", "empty", "No data in this window."));
+    g.appendChild(card); return g;
+  }
+
+  var readout = el("div", "readout"); readout.style.marginBottom = "10px";
+  card.appendChild(readout);
+  card.appendChild(exCanvas(pts, s.unit || "", readout));
+
+  var vals = pts.map(function (p) { return p[1]; });
+  var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+  var mean = avg(vals);
+  var stat = el("div", "minmax");
+  stat.innerHTML =
+    '<span>min <b>' + lo.toFixed(2) + '</b></span>' +
+    '<span>max <b>' + hi.toFixed(2) + '</b></span>' +
+    '<span>mean <b>' + mean.toFixed(2) + '</b></span>' +
+    '<span><b>' + s.total + '</b> points</span>' +
+    (s.downsampled ? '<span style="color:var(--warn)">downsampled to ' + pts.length + '</span>' : '<span>raw</span>');
+  card.appendChild(stat);
+  g.appendChild(card);
+
+  if (EX.raw) {
+    var g2 = el("div", "grp");
+    g2.appendChild(el("div", "grp-title", "Raw points" +
+      (s.downsampled ? '<span class="tag">bucket averages — widen `max` for exact rows</span>' : '')));
+    var c2 = el("div", "card"); c2.style.overflowX = "auto";
+    var tbl = el("table", "ex-table");
+    tbl.innerHTML = "<thead><tr><th>time</th><th>value</th></tr></thead>";
+    var tb = document.createElement("tbody");
+    pts.slice(-200).reverse().forEach(function (p) {
+      var tr = document.createElement("tr");
+      var d = new Date(p[0]);
+      var td1 = document.createElement("td"); td1.textContent = d.toLocaleString();
+      var td2 = document.createElement("td"); td2.textContent = p[1].toFixed(3) + (s.unit ? " " + s.unit : "");
+      tr.appendChild(td1); tr.appendChild(td2); tb.appendChild(tr);
+    });
+    tbl.appendChild(tb); c2.appendChild(tbl);
+    c2.appendChild(el("div", "minmax", '<span>newest first · showing up to 200 of ' + pts.length + '</span>'));
+    g2.appendChild(c2); g.appendChild(g2);
+  }
+  return g;
+}
+
+/* Canvas line chart, DPR-aware, with a drag/hover readout.
+   Long gaps break the line instead of drawing a straight lie across them —
+   that's where hearth wasn't running, and the chart should say so. */
+function exCanvas(pts, unit, readout) {
+  var box = el("div", "chart"); box.style.position = "relative";
+  var cv = document.createElement("canvas");
+  cv.style.cssText = "width:100%;height:200px;display:block";
+  box.appendChild(cv);
+
+  var xs = pts.map(function (p) { return p[0]; });
+  var ys = pts.map(function (p) { return p[1]; });
+  var t0 = xs[0], t1 = xs[xs.length - 1] || t0 + 1;
+  var lo = Math.min.apply(null, ys), hi = Math.max.apply(null, ys);
+  if (hi - lo < 1e-9) { hi = lo + 1; lo -= 1; }
+  var padv = (hi - lo) * 0.08; lo -= padv; hi += padv;
+
+  // A "gap" is a step much larger than the typical one.
+  var steps = [];
+  for (var i = 1; i < xs.length; i++) steps.push(xs[i] - xs[i - 1]);
+  steps.sort(function (a, b) { return a - b; });
+  var typical = steps.length ? steps[Math.floor(steps.length / 2)] : 0;
+  var gapAt = typical > 0 ? typical * 4 : Infinity;
+
+  var PADL = 44, PADR = 8, PADT = 10, PADB = 22, cursor = null;
+
+  function draw() {
+    var dpr = window.devicePixelRatio || 1;
+    var w = box.clientWidth || 320, h = 200;
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    var g = cv.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    var X = function (t) { return PADL + ((t - t0) / (t1 - t0 || 1)) * (w - PADL - PADR); };
+    var Y = function (v) { return PADT + (1 - (v - lo) / (hi - lo)) * (h - PADT - PADB); };
+
+    // grid + value labels
+    g.font = "10px ui-monospace, monospace";
+    g.textBaseline = "middle";
+    for (var k = 0; k <= 4; k++) {
+      var v = lo + (hi - lo) * (k / 4), y = Y(v);
+      g.strokeStyle = "rgba(255,255,255,.06)"; g.beginPath();
+      g.moveTo(PADL, y); g.lineTo(w - PADR, y); g.stroke();
+      g.fillStyle = "#78705f"; g.textAlign = "right";
+      g.fillText(v.toFixed(Math.abs(hi - lo) < 5 ? 2 : 0), PADL - 6, y);
+    }
+    // time labels
+    g.textAlign = "center"; g.textBaseline = "top";
+    [0, 0.5, 1].forEach(function (f) {
+      var t = t0 + (t1 - t0) * f, d = new Date(t);
+      var span = t1 - t0;
+      var lbl = span > 86400000 * 2
+        ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+        : d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+      g.fillStyle = "#78705f";
+      g.fillText(lbl, Math.min(w - PADR - 18, Math.max(PADL + 18, X(t))), h - PADB + 6);
+    });
+
+    // area + line, broken across gaps
+    var segs = [[]];
+    for (var i2 = 0; i2 < xs.length; i2++) {
+      if (i2 && xs[i2] - xs[i2 - 1] > gapAt) segs.push([]);
+      segs[segs.length - 1].push(i2);
+    }
+    segs.forEach(function (seg) {
+      if (seg.length < 1) return;
+      g.beginPath();
+      seg.forEach(function (i3, n) { var x = X(xs[i3]), y = Y(ys[i3]); n ? g.lineTo(x, y) : g.moveTo(x, y); });
+      if (seg.length > 1) {
+        var grad = g.createLinearGradient(0, PADT, 0, h - PADB);
+        grad.addColorStop(0, "rgba(203,162,78,.26)"); grad.addColorStop(1, "rgba(203,162,78,0)");
+        g.lineTo(X(xs[seg[seg.length - 1]]), h - PADB);
+        g.lineTo(X(xs[seg[0]]), h - PADB);
+        g.closePath(); g.fillStyle = grad; g.fill();
+      }
+      g.beginPath();
+      seg.forEach(function (i3, n) { var x = X(xs[i3]), y = Y(ys[i3]); n ? g.lineTo(x, y) : g.moveTo(x, y); });
+      g.strokeStyle = "#cba24e"; g.lineWidth = 1.8; g.lineJoin = "round"; g.lineCap = "round";
+      if (seg.length === 1) { g.arc(X(xs[seg[0]]), Y(ys[seg[0]]), 1.8, 0, 6.284); g.fillStyle = "#cba24e"; g.fill(); }
+      else g.stroke();
+    });
+
+    if (cursor != null) {
+      var cx = X(xs[cursor]), cy = Y(ys[cursor]);
+      g.strokeStyle = "rgba(242,236,224,.5)"; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(cx, PADT); g.lineTo(cx, h - PADB); g.stroke();
+      g.beginPath(); g.arc(cx, cy, 3.5, 0, 6.284); g.fillStyle = "#f2ece0"; g.fill();
+    }
+    stamp();
+  }
+
+  function stamp() {
+    var i = cursor == null ? xs.length - 1 : cursor;
+    var d = new Date(xs[i]);
+    readout.innerHTML =
+      '<span class="ro-d">' + esc(d.toLocaleString()) + (cursor == null ? ' <em>latest</em>' : '') + '</span>' +
+      '<span class="ro-v">' + ys[i].toFixed(2) + (unit ? ' <small>' + esc(unit) + '</small>' : '') + '</span>';
+  }
+
+  scrub(box, xs.length, function (i) { cursor = i; draw(); });
+  // Redraw on resize so the canvas stays sharp when the panel rotates/zooms.
+  if (window.ResizeObserver) new ResizeObserver(function () { draw(); }).observe(box);
+  setTimeout(draw, 0);
+  return box;
 }
 
 /* ---------- fetch + poll + wake ---------- */
